@@ -111,3 +111,8 @@ export function levelOf(w: UsageWindow, nowSec: number): Level {
 export function reachedWindow(usage: Usage | null, nowSec: number): UsageWindow | null {
   return usage?.windows.find((w) => levelOf(w, nowSec) === 'reached') ?? null
 }
+
+// Send is off only while a limit with a known reset time holds; an unknown reset leaves it on.
+export function limitBlocks(usage: Usage | null, nowSec: number): boolean {
+  return usage?.windows.some((w) => levelOf(w, nowSec) === 'reached' && w.resetsAt !== null) ?? false
+}

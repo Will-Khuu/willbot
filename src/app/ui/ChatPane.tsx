@@ -358,6 +358,12 @@ export function ChatPane(props: Props) {
                   {routeLine(item)}
                 </div>
               )
+            case 'routine':
+              return (
+                <div key={item.id} className="routineDivider">
+                  Routine · {item.name}
+                </div>
+              )
             case 'error':
               return (
                 <div key={item.id} className="errorCard" role="alert">

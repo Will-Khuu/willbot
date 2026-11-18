@@ -176,7 +176,7 @@ async function matchClaudeCodeDefaults(q: Query, cwd: string, model: string | nu
 const now = () => new Date().toISOString()
 const newId = () => randomUUID()
 
-function save(ownerId: BotId, item: ChatItem, update = false): void {
+export function save(ownerId: BotId, item: ChatItem, update = false): void {
   upsertChatItem(ownerId, item)
   publish(ownerId, { type: update ? 'item_update' : 'item', item })
 }

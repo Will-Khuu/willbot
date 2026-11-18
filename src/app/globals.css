@@ -767,6 +767,11 @@ summary.approvalDetail {
   .task.in_progress .taskMark {
     animation: none;
   }
+
+  .switchTrack,
+  .switchTrack::after {
+    transition: none;
+  }
 }
 
 .routeLine {
@@ -910,6 +915,130 @@ summary.approvalDetail {
 .addMemory {
   display: flex;
   gap: 8px;
+}
+
+.routineList {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.routineList:empty {
+  display: none;
+}
+
+.routineItem {
+  font-size: 13px;
+  line-height: 1.5;
+  padding: 4px 12px 2px;
+  border-radius: 10px;
+  background: var(--chat);
+  border: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+}
+
+.routineItem:has(form) {
+  padding: 10px 12px;
+}
+
+.routineHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.routineName {
+  font-size: 14px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.routineOutcome {
+  font-size: 12px;
+  color: var(--approval-ink);
+}
+
+.routineActions {
+  gap: 2px;
+  margin-left: -6px;
+}
+
+.routineActions .linkButton {
+  font-size: 12px;
+}
+
+.switch {
+  position: relative;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  min-height: 44px;
+  cursor: pointer;
+}
+
+.switch input {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.switchTrack {
+  width: 36px;
+  height: 20px;
+  border-radius: 999px;
+  background: var(--control-line);
+  position: relative;
+  transition: background 120ms;
+}
+
+.switchTrack::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #ffffff;
+  transition: transform 120ms;
+}
+
+.switch input:checked + .switchTrack {
+  background: var(--ink);
+}
+
+.switch input:checked + .switchTrack::after {
+  transform: translateX(16px);
+}
+
+.switch input:focus-visible + .switchTrack {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+
+.routineDivider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.routineDivider::before,
+.routineDivider::after {
+  content: '';
+  flex: 1;
+  border-top: 1px solid var(--line);
 }
 
 @media (max-width: 1100px) {

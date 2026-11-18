@@ -1,4 +1,5 @@
 import type { Answers, BotView, Capabilities, Chat, ChatItem, MemoryEntry, Model } from '@/lib/types'
+import type { Routine, Schedule } from '@/lib/routines'
 import type { Usage } from '@/lib/usage'
 
 async function call<T>(url: string, init?: RequestInit & { json?: unknown }): Promise<T> {
@@ -42,7 +43,15 @@ export const api = {
   memory: (id: string) => call<MemoryEntry[]>(`/api/memory/${id}`),
   saveMemory: (id: string, entries: MemoryEntry[]) =>
     call<MemoryEntry[]>(`/api/memory/${id}`, { method: 'PUT', json: { entries } }),
+  routines: (botId: string) => call<Routine[]>(`/api/routines?botId=${encodeURIComponent(botId)}`),
+  createRoutine: (botId: string, input: RoutineInput) => call<Routine>('/api/routines', { method: 'POST', json: { botId, ...input } }),
+  patchRoutine: (id: string, patch: Partial<RoutineInput> & { enabled?: boolean }) =>
+    call<Routine>(`/api/routines/${id}`, { method: 'PATCH', json: patch }),
+  deleteRoutine: (id: string) => call<null>(`/api/routines/${id}`, { method: 'DELETE' }),
+  runRoutine: (id: string) => call<Routine>(`/api/routines/${id}/run`, { method: 'POST' }),
 }
+
+export type RoutineInput = { name: string; prompt: string; schedule: Schedule }
 
 export function localError(text: string): ChatItem {
   return { kind: 'error', id: `local-${Date.now()}`, text, at: new Date().toISOString() }

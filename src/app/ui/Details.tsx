@@ -4,6 +4,7 @@ import { useEffect, useState, type FormEvent } from 'react'
 import { MODELS, type BotView, type Capabilities, type MemoryEntry, type Model } from '@/lib/types'
 import { MODEL_LABELS } from '@/lib/router'
 import { api } from './api'
+import { Routines } from './Routines'
 
 type Props = {
   bot: BotView
@@ -286,10 +287,7 @@ export function Details(props: Props) {
         </form>
       </section>
 
-      <section className="detailSection">
-        <h3 className="sectionLabel">Routines</h3>
-        <p className="mutedText">No routines yet. Coming in a later version.</p>
-      </section>
+      <Routines bot={bot} />
 
       <section className="detailSection autonomy">
         <h3 className="sectionLabel">Autonomy</h3>

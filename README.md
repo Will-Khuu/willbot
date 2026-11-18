@@ -23,7 +23,7 @@ Other scripts:
 
 - `npm run typecheck` runs `tsc --noEmit`.
 - `npm run build` builds for production. `npm start` serves the build on 127.0.0.1.
-- `npm test` checks the take-over rules, the session state machine, question answer validation, the model router, the task list, activity detail truncation, and plan usage parsing.
+- `npm test` checks the take-over rules, the session state machine, question answer validation, the model router, the task list, activity detail truncation, plan usage parsing, and routine scheduling.
 
 ## Starter employees
 
@@ -73,6 +73,17 @@ Each route shows as one muted line under your message, for example "Opus · feat
 
 When an employee keeps a todo list with Claude Code's TodoWrite or TaskCreate and TaskUpdate tools, the list shows above the composer with a done count, for example "Tasks 3/7". Each task is marked done, in progress or pending. Only the employee's own list shows, not its subagents'. The list hides when it is empty, or when every task is done and the employee is idle. The chat file keeps the latest list for each Claude Code session. The tool calls themselves no longer show as activity lines.
 
+## Routines
+
+A routine is a saved message that will-bot sends to an employee on a schedule. Add one in the details panel with a name, what it should do, and a schedule.
+
+- **Schedules.** Daily, Weekdays (Monday to Friday) or Weekly at a time, or every 1, 2, 3, 4, 6, 8 or 12 hours. Times are in your computer's local time and keep their clock time across daylight saving changes. "Every N hours" counts from the last run, or from when you created the routine.
+- **Same as a message from you.** The chat shows "Routine · Evening summary", then the message. The router, approvals, questions and the task list behave as they do for any message. If the employee is working, the message joins the turn.
+- **Only while will-bot runs.** The server checks every 30 seconds. A run it misses because the server was stopped or the computer slept still happens once if it is under 2 hours late. Otherwise the row says "Missed while will-bot was closed" and the routine waits for its next time. A backlog never runs more than once.
+- **Skips.** A routine does not run while you have taken over the employee, while the employee is working for the Chief, while a plan limit with a known reset time holds, or while a billing variable is set. The row says why, and the routine waits for its next time.
+- **Run now** sends it at once through the same checks and leaves the schedule as it was. The switch turns a routine off without deleting it.
+- **Roster.** An idle employee with a routine on shows the next one, for example "Idle · next: Evening summary 6 PM".
+
 ## Activity details
 
 Each activity line opens to show what the tool was given and what it returned: the shell command, the file path, the URL, or the MCP tool input. Edits and writes show removed lines with `- ` and added lines with `+ `. A failed call is marked "Error". Input and output are each cut to 4,000 characters at a line break and saved in the chat file.
@@ -103,6 +114,7 @@ Everything is plain files under `./data`:
 - `data/memory/<id>.md` holds each employee's memory, one `- YYYY-MM-DD: note` line per entry. You can edit it in the details panel, and employees add to it with their `remember` tool.
 - `data/workspaces/<id>/` is each employee's default working folder.
 - `data/usage.json` holds the last plan usage, so a restart still shows it.
+- `data/routines.json` holds every routine with its schedule, next run and last outcome.
 
 ## Safety
 
@@ -122,5 +134,6 @@ Employees run with your Claude Code permissions and settings, exactly like a Cla
 - Your user settings load, so an `env` block in `~/.claude/settings.json` reaches every employee. Keep API keys out of it.
 - Connected tools in the details panel come from a check that starts your Claude setup without a prompt. It takes a few seconds and is cached for 10 minutes.
 - If a saved Claude Code session disappears from `~/.claude`, resuming fails. Delete that employee's `data/chats/<id>.json` to start fresh.
-- Deleting an employee removes its chat and memory but leaves its working folder on disk.
-- No group channel, routines, or "teach a task" yet.
+- Deleting an employee removes its chat, memory and routines but leaves its working folder on disk.
+- Routines run only while the will-bot server runs. Nothing wakes the computer for them.
+- No group channel or "teach a task" yet.

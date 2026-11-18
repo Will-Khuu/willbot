@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { parseMemory, serializeMemory, oneLine, today } from './memory'
+import { RoutinesFileSchema, type Routine } from './routines'
 import {
   BotsFileSchema,
   ChatSchema,
@@ -16,6 +17,7 @@ import { UsageSchema, type Usage } from './usage'
 const DATA_DIR = path.join(process.cwd(), 'data')
 const BOTS_FILE = path.join(DATA_DIR, 'bots.json')
 const USAGE_FILE = path.join(DATA_DIR, 'usage.json')
+const ROUTINES_FILE = path.join(DATA_DIR, 'routines.json')
 const BOT_ID = /^[a-z0-9-]{1,40}$/
 
 type Seed = Pick<Bot, 'id' | 'name' | 'job' | 'builtin'>
@@ -116,6 +118,8 @@ export function deleteBot(id: BotId): void {
   saveBots(listBots().filter((b) => b.id !== id))
   fs.rmSync(chatFile(id), { force: true })
   fs.rmSync(memoryFile(id), { force: true })
+  const routines = readRoutines()
+  if (routines.some((r) => r.botId === id)) saveRoutines(routines.filter((r) => r.botId !== id))
 }
 
 function chatFile(id: BotId): string {
@@ -182,4 +186,13 @@ export function readUsage(): Usage | null {
 
 export function writeUsage(usage: Usage): void {
   writeAtomic(USAGE_FILE, JSON.stringify(usage, null, 2) + '\n')
+}
+
+export function readRoutines(): Routine[] {
+  const raw = readText(ROUTINES_FILE)
+  return raw === null ? [] : RoutinesFileSchema.parse(JSON.parse(raw))
+}
+
+export function saveRoutines(routines: Routine[]): void {
+  writeAtomic(ROUTINES_FILE, JSON.stringify(routines, null, 2) + '\n')
 }

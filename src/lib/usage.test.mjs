@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { levelOf, markRejected, mergeUsage, parseLimitError, parseRateLimit, reachedWindow } from './usage.ts'
+import { levelOf, limitBlocks, markRejected, mergeUsage, parseLimitError, parseRateLimit, reachedWindow } from './usage.ts'
 
 const SEEN = '2026-11-18T10:00:00.000Z'
 
@@ -92,4 +92,12 @@ test('levels follow utilization, and a passed reset clears a rejection', () => {
   assert.equal(levelOf(w(0.2, 'rejected'), 1000), 'reached')
   assert.equal(levelOf(w(1, 'rejected'), 3000), 'ok')
   assert.equal(levelOf(w(null, 'rejected', null), 3000), 'reached')
+})
+
+test('a reached limit blocks only while its reset time is known and ahead', () => {
+  const rejected = (resetsAt) => ({ windows: [{ kind: 'five_hour', utilization: 1, resetsAt, status: 'rejected' }], seenAt: SEEN })
+  assert.equal(limitBlocks(rejected(2000), 1000), true)
+  assert.equal(limitBlocks(rejected(2000), 2000), false)
+  assert.equal(limitBlocks(rejected(null), 1000), false)
+  assert.equal(limitBlocks(null, 1000), false)
 })

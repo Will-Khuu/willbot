@@ -77,6 +77,8 @@ type Runtime = {
   capabilities?: { at: number; value: Promise<Capabilities> }
   // Plan usage from the latest rate_limit_event; undefined until read from data/usage.json.
   usage?: Usage | null
+  // The routine scheduler's one interval. It calls `tick`, which each HMR'd module replaces.
+  scheduler?: { timer: NodeJS.Timeout; tick: () => void }
 }
 
 export const DECISION_TIMEOUT_MS = 10 * 60 * 1000
@@ -188,7 +190,7 @@ export function delegatedBy(botId: BotId): BotId | null {
   return null
 }
 
-export function viewBot(bot: Bot, names: Map<BotId, string>): BotView {
+export function viewBot(bot: Bot, names: Map<BotId, string>, nextRoutine: string | null): BotView {
   const waiting = [...rt.decisions.values()].some((d) => d.botId === bot.id || d.ownerId === bot.id)
   const live = rt.sessions.get(bot.id)
   const delegator = delegatedBy(bot.id)
@@ -203,7 +205,7 @@ export function viewBot(bot: Bot, names: Map<BotId, string>): BotView {
     paused: 'Paused · you are driving',
     needs_approval: 'Needs your answer',
     working: delegator ? `Working for ${names.get(delegator) ?? delegator}` : 'Working',
-    idle: 'Idle',
+    idle: nextRoutine ? `Idle · next: ${nextRoutine}` : 'Idle',
   }[status]
   return { ...bot, status, statusLine, delegatedBy: delegator }
 }

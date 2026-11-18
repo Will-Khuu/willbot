@@ -2,11 +2,13 @@ import { z } from 'zod'
 import { markChiefStale } from '@/lib/agent'
 import { error, parseBody } from '@/lib/http'
 import { createBot } from '@/lib/store'
+import { ensureScheduler } from '@/lib/scheduler'
 import { botViews } from '@/lib/views'
 
 export const dynamic = 'force-dynamic'
 
 export function GET() {
+  ensureScheduler()
   return Response.json(botViews())
 }
 

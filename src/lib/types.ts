@@ -79,6 +79,8 @@ export const ChatItemSchema = z.discriminatedUnion('kind', [
     changed: z.boolean(),
     at: z.string(),
   }),
+  // Marks the message after it as sent by a routine.
+  z.object({ kind: z.literal('routine'), id: z.string(), botId: z.string(), routineId: z.string(), name: z.string(), at: z.string() }),
   // One per Claude Code session (id `tasks:<sessionId>`), replaced in place as the list changes.
   z.object({ kind: z.literal('tasks'), id: z.string(), botId: z.string(), items: z.array(TaskEntrySchema), at: z.string() }),
 ])
