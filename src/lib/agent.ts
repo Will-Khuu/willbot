@@ -1,60 +1,92 @@
-import os from 'node:os'
+import fs from 'node:fs'
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
 import {
   createSdkMcpServer,
+  filterEscalatingDefaultMode,
   query,
+  resolveSettings,
   tool,
   type AgentDefinition,
   type CanUseTool,
   type HookCallback,
+  type McpStdioServerConfig,
   type Options,
+  type PermissionResult,
   type Query,
   type SDKMessage,
   type SDKUserMessage,
 } from '@anthropic-ai/claude-agent-sdk'
 import { sdkEnv } from './env'
-import { classifyTool, type FullAccess } from './policy'
-import { endRun, requestApproval, startRun } from './runtime'
-import { appendMemory, getBot, listBots, readChat, readMemory, setSessionId, upsertChatItem, workspaceDir } from './store'
-import { isFull, type Bot, type BotId, type ChatItem, type StreamEvent } from './types'
+import { actorOf, guardToolCall, isDelegation, REMEMBER } from './guard'
+import { parseQuestions } from './questions'
+import { AsyncQueue, awaitDecision, delegatedBy, expireDecisions, publish, rt, type LiveSession } from './runtime'
+import { initialSession, isQuiet, isWorking, reduce, shouldRecycle, type SessionEvent } from './session'
+import { appendMemory, ensureFolder, getBot, listBots, readChat, readMemory, setSessionId, upsertChatItem } from './store'
+import type { ApprovalItem, Bot, BotId, ChatItem, Model, Question, QuestionItem } from './types'
 
-const MODELS = { chief: 'sonnet', worker: 'haiku' } as const
-const MAX_TURNS = { chief: 12, worker: 8 } as const
-const REMEMBER = 'mcp__willbot__remember'
 const CONNECT_WAIT_MS = 12_000
-const DENY_MESSAGE = 'The user said not yet. Do not retry this action; tell the user what you wanted to do.'
+const IDLE_CLOSE_MS = 15 * 60 * 1000
 
-function systemPrompt(bot: Bot, opts: { canRemember: boolean; team?: Bot[] }): string {
+function employeeBlock(bot: Bot, opts: { canRemember: boolean; team?: Bot[] }): string {
   const memory = readMemory(bot.id)
-  const full = isFull(bot)
   const lines = [
-    `You are ${bot.name}, one bot in a small team the user runs on their own Mac.`,
+    `You are ${bot.name}, one employee in will-bot; the user talks to you through its chat UI.`,
     `Your job: ${bot.job}`,
-    full
-      ? `Your workspace folder is ${workspaceDir(bot.id)}. Save your work there. You may read files elsewhere on this Mac. Always use absolute paths.`
-      : `Your workspace folder is ${workspaceDir(bot.id)}. Only read and write files inside it, and always use absolute paths.`,
-    '',
-    'Rules:',
-    '- Keep replies short: a few sentences unless asked for more.',
-    full
-      ? '- Shell commands, writes outside your folder, and anything that sends, posts or changes data wait for the user to approve.'
-      : '- Ask before risky actions. Shell commands, deleting files and anything that sends or posts need the user to approve.',
-    '- If the user denies an action, do not retry it. Say what you wanted to do.',
-    '- Never read .env files or anything that looks like a secret.',
+    `Your working folder is ${bot.folder}.`,
   ]
-  if (opts.canRemember) lines.push('- When the user tells you a durable fact or preference, save it with the remember tool.')
+  if (opts.canRemember) {
+    lines.push(`When the user tells you a durable fact or preference, save it with the ${REMEMBER} tool.`)
+  }
   if (opts.team?.length) {
     lines.push(
-      '- Delegate work to the other bots with the Agent tool, using their id as subagent_type. Then give the user a short summary.',
       '',
-      'Your team:',
+      'You lead a team. Delegate to a teammate with the Agent tool, using their id as subagent_type:',
       ...opts.team.map((b) => `- ${b.id}: ${b.name}. ${b.job}`),
     )
   }
   lines.push('', 'Memory:', ...(memory.length ? memory.map((m) => `- ${m.date}: ${m.text}`) : ['(nothing saved yet)']))
   return lines.join('\n')
+}
+
+function playwright(folder: string): McpStdioServerConfig {
+  return {
+    command: 'npx',
+    args: ['-y', '@playwright/mcp@0.0.84', '--headless', '--isolated', '--output-dir', path.join(folder, '.playwright')],
+  }
+}
+
+function rememberServer(botId: BotId) {
+  return createSdkMcpServer({
+    name: 'willbot',
+    version: '0.1.0',
+    tools: [
+      tool(
+        'remember',
+        'Save one durable fact or preference to your memory. It is loaded into every future conversation.',
+        { note: z.string().min(1).max(500).describe('One short sentence to remember.') },
+        async ({ note }) => {
+          appendMemory(botId, note)
+          return { content: [{ type: 'text', text: 'Saved to memory.' }] }
+        },
+      ),
+    ],
+  })
+}
+
+function agentDefinitions(team: Bot[]): Record<string, AgentDefinition> {
+  return Object.fromEntries(
+    team.map((b) => [
+      b.id,
+      {
+        description: `${b.name}: ${b.job}`,
+        prompt: employeeBlock(b, { canRemember: false }),
+        model: b.model ?? undefined,
+        mcpServers: b.browser ? [{ playwright: playwright(b.folder) }] : undefined,
+      },
+    ]),
+  )
 }
 
 function short(text: string, max = 80): string {
@@ -85,9 +117,11 @@ const ACTIVITY: Record<string, (input: Record<string, unknown>, nameOf: (id: str
   WebSearch: (i) => `Searched the web for "${short(str(i, 'query'), 60)}"`,
   WebFetch: (i) => `Opened ${host(str(i, 'url'))}`,
   Bash: (i) => (str(i, 'description') ? `Shell command: ${short(str(i, 'description'), 60)}` : 'Shell command'),
-  Agent: (i, nameOf) => `Asked ${nameOf(str(i, 'subagent_type'))}`,
-  Task: (i, nameOf) => `Asked ${nameOf(str(i, 'subagent_type'))}`,
+  Agent: (i, nameOf) => `Asked ${nameOf(str(i, 'subagent_type') || 'a subagent')}`,
+  Task: (i, nameOf) => `Asked ${nameOf(str(i, 'subagent_type') || 'a subagent')}`,
   Skill: (i) => `Used the ${short(str(i, 'skill'), 40)} skill`,
+  AskUserQuestion: () => 'Asked you a question',
+  ExitPlanMode: () => 'Shared a plan',
   [REMEMBER]: (i) => `Remembered: ${short(str(i, 'note'), 60)}`,
 }
 
@@ -102,281 +136,377 @@ function activityLabel(toolName: string, input: Record<string, unknown>, nameOf:
   return ACTIVITY[toolName]?.(input, nameOf) ?? `Used ${mcpName(toolName) ?? toolName}`
 }
 
-function describeAction(toolName: string, input: Record<string, unknown>): string {
-  if (toolName === 'Bash') return `Run this shell command: ${str(input, 'command')}`
-  return `Use ${mcpName(toolName) ?? toolName} with ${short(JSON.stringify(input), 300)}`
+function planText(input: Record<string, unknown>): string {
+  if (typeof input.plan === 'string' && input.plan.trim()) return input.plan
+  const file = str(input, 'planFilePath')
+  if (file) {
+    try {
+      return fs.readFileSync(file, 'utf8')
+    } catch {}
+  }
+  return JSON.stringify(input, null, 2)
 }
 
-function isDelegation(toolName: string): boolean {
-  return toolName === 'Agent' || toolName === 'Task'
+// The user's own Claude Code sessions run in auto mode unless their settings
+// name another default. The CLI started headless picks 'default' instead, so
+// say auto explicitly when the settings are silent. A resumed session also
+// keeps the model it last ran on, so an employee on "Default" is moved to the
+// user's current default model.
+async function matchClaudeCodeDefaults(q: Query, cwd: string, model: string | null): Promise<void> {
+  const settings = filterEscalatingDefaultMode(await resolveSettings({ cwd, settingSources: ['user', 'project', 'local'] }))
+  if (!settings.permissions?.defaultMode) await q.setPermissionMode('auto')
+  if (!model && settings.model) await q.setModel(settings.model)
 }
 
-function rememberServer(botId: BotId) {
-  return createSdkMcpServer({
-    name: 'willbot',
-    version: '0.1.0',
-    tools: [
-      tool(
-        'remember',
-        'Save one durable fact or preference to your memory. It is loaded into every future conversation.',
-        { note: z.string().min(1).max(500).describe('One short sentence to remember.') },
-        async ({ note }) => {
-          appendMemory(botId, note)
-          return { content: [{ type: 'text', text: 'Saved to memory.' }] }
-        },
-      ),
-    ],
-  })
+const now = () => new Date().toISOString()
+const newId = () => randomUUID()
+
+function save(ownerId: BotId, item: ChatItem, update = false): void {
+  upsertChatItem(ownerId, item)
+  publish(ownerId, { type: update ? 'item_update' : 'item', item })
 }
 
-function agentDefinitions(others: Bot[]): Record<string, AgentDefinition> {
-  return Object.fromEntries(
-    others.map((b) => {
-      const memo = readMemory(b.id)
-        .slice(0, 3)
-        .map((m) => m.text)
-        .join(' ')
-      return [
-        b.id,
-        {
-          description: `${b.name}: ${b.job}${memo ? ` Notes: ${memo}` : ''}`,
-          prompt: systemPrompt(b, { canRemember: false }),
-          tools: isFull(b) ? undefined : b.tools.filter((t) => t !== 'Agent'),
-          model: MODELS.worker,
-          maxTurns: MAX_TURNS.worker,
-          background: false,
-        },
-      ]
-    }),
-  )
+function dispatch(live: LiveSession, event: SessionEvent): void {
+  const before = live.state
+  live.state = reduce(before, event)
+  if (live.state === before) return
+  if (isWorking(before) !== isWorking(live.state) || before.phase !== live.state.phase) {
+    publish(live.botId, { type: 'status' })
+    for (const id of new Set([...before.delegated.values(), ...live.state.delegated.values()])) publish(id, { type: 'status' })
+  }
+  if (shouldRecycle(live.state)) return closeLive(live)
+  if (isQuiet(live.state)) {
+    live.idleTimer ??= setTimeout(() => {
+      if (isQuiet(live.state)) closeLive(live)
+    }, IDLE_CLOSE_MS)
+  } else if (live.idleTimer) {
+    clearTimeout(live.idleTimer)
+    live.idleTimer = null
+  }
 }
 
-export type RunHandle = { done: Promise<void> }
+function closeLive(live: LiveSession): void {
+  if (live.state.phase === 'closing') return
+  dispatch(live, { type: 'closing' })
+  if (live.idleTimer) clearTimeout(live.idleTimer)
+  live.idleTimer = null
+  live.inbox.close()
+  live.query.close()
+  expireDecisions(live.botId)
+  if (rt.sessions.get(live.botId) === live) rt.sessions.delete(live.botId)
+  publish(live.botId, { type: 'status' })
+}
 
-export function runBot(botId: BotId, message: string, emit: (event: StreamEvent) => void): RunHandle | null {
-  const bot = getBot(botId)
-  if (!bot) return null
-
-  const allBots = listBots()
-  const names = new Map(allBots.map((b) => [b.id, b.name]))
+function open(bot: Bot): LiveSession {
+  const all = listBots()
+  const names = new Map(all.map((b) => [b.id, b.name]))
   const nameOf = (id: string) => names.get(id) ?? id
-  const isChief = bot.builtin === 'chief'
-  const team = isChief ? allBots.filter((b) => b.id !== bot.id && !b.paused) : []
-  const workspaces = new Map<BotId, string>([[bot.id, workspaceDir(bot.id)], ...team.map((b) => [b.id, workspaceDir(b.id)] as const)])
-  const workspaceOf = (id: BotId) => workspaces.get(id) ?? workspaces.get(bot.id)!
-  const ownTools = (b: Bot) => b.tools.filter((t) => t !== 'Agent' || (isChief && b.id === bot.id))
-  // The session-level `tools` option caps subagents too, so it must be the
-  // union of every bot's tools; the hook then holds each bot to its own list.
-  // remember writes to the run owner's memory, so only the owner gets it.
-  const toolsOf = new Map<BotId, Set<string>>(
-    [bot, ...team].map((b) => [b.id, new Set(b.id === bot.id ? [...ownTools(b), REMEMBER] : ownTools(b))]),
-  )
-  const sessionTools = [...new Set([bot, ...team].flatMap(ownTools))]
-  const fullIds = new Set([bot, ...team].filter(isFull).map((b) => b.id))
-  const isTeam = (id: string) => id !== bot.id && workspaces.has(id)
-  const prompt = systemPrompt(bot, { canRemember: true, team })
-  const resume = readChat(botId).sessionId ?? undefined
-  const agents = isChief ? agentDefinitions(team) : undefined
-
-  // Everything above can throw (disk reads, mkdir); claiming the slot after it
-  // means a setup failure never leaves the bot stuck as working.
-  const run = startRun(botId)
-  if (!run) return null
-
-  // tool_use id -> bot that made the call, so canUseTool (which only sees a
-  // toolUseID) can check and label a subagent's call against its own workspace.
-  const caller = new Map<string, BotId>()
-  // Agent tool_use id -> delegated bot, to attribute subagent messages.
-  const delegations = new Map<string, BotId>()
-  // MCP tool name -> read-only, filled from the session's server status.
-  const mcpReadOnly = new Map<string, boolean>()
-  let session: Query | null = null
-  const full: FullAccess = { home: os.homedir(), readOnlyMcp: (name) => mcpReadOnly.get(name) === true }
-  const accessOf = (actor: BotId) => (fullIds.has(actor) ? full : undefined)
-  // A failed lookup leaves the tool unknown, which asks.
-  const learnMcpTools = async () => {
-    const servers = await session?.mcpServerStatus().catch(() => null)
-    for (const server of servers ?? []) {
-      const prefix = `mcp__${server.name.replace(/[^a-zA-Z0-9_-]/g, '_')}__`
-      for (const t of server.tools ?? []) {
-        mcpReadOnly.set(prefix + t.name, t.annotations?.readOnly === true && t.annotations.destructive !== true)
-      }
+  const teamBots = bot.builtin === 'chief' ? all.filter((b) => b.id !== bot.id && !b.paused) : []
+  const team = new Set(teamBots.map((b) => b.id))
+  const cwd = ensureFolder(bot)
+  const teamFolders = teamBots.flatMap((b) => {
+    try {
+      return [ensureFolder(b)]
+    } catch {
+      return []
     }
-  }
-
-  const save = (item: ChatItem, update = false) => {
-    upsertChatItem(botId, item)
-    emit({ type: update ? 'item_update' : 'item', item })
-  }
-  const now = () => new Date().toISOString()
-  const id = () => randomUUID()
-
-  const refuse = (reason: string) => ({
-    hookSpecificOutput: { hookEventName: 'PreToolUse' as const, permissionDecision: 'deny' as const, permissionDecisionReason: reason },
   })
-  // Paused and deleted are re-read on every call: the user can take over or
-  // delete a bot while it works as a subagent.
-  const unavailable = (id: BotId): string | null => {
-    const current = getBot(id)
-    if (!current) return 'That bot was deleted.'
-    return current.paused ? `${current.name} is paused by the user.` : null
-  }
 
-  // A full bot's own subagents (not team bots) act as the bot itself. In the
-  // Chief's run every subagent must be a team bot.
-  const actorOf = (agentId: string | undefined, agentType: string | undefined): BotId | null => {
-    if (!agentId) return bot.id
-    if (agentType && isTeam(agentType)) return agentType
-    return !isChief && fullIds.has(bot.id) ? bot.id : null
+  // tool_use id -> employee making the call, so canUseTool (which only sees a
+  // toolUseID) can say who is asking.
+  const caller = new Map<string, BotId>()
+  // task id -> what the session told us about it, for background activity items.
+  const tasks = new Map<string, { description: string; toolUseId: string | undefined; announced: boolean }>()
+  const backgroundToolUses = new Set<string>()
+  let interrupted = false
+
+  const inbox = new AsyncQueue<SDKUserMessage>()
+  let markReady!: () => void
+  const ready = new Promise<void>((r) => (markReady = r))
+  // claude.ai connectors connect seconds after start. A message sent at once
+  // runs its first turn without them, and the model reports them unavailable.
+  async function* prompt(): AsyncGenerator<SDKUserMessage> {
+    await ready
+    yield* inbox
   }
 
   const guard: HookCallback = async (input) => {
     if (input.hook_event_name !== 'PreToolUse') return {}
-    const actor = actorOf(input.agent_id, input.agent_type)
-    if (!actor) return refuse('Unknown agent.')
-    caller.set(input.tool_use_id, actor)
-    const toolName = input.tool_name
-    const toolInput = (input.tool_input ?? {}) as Record<string, unknown>
-    const actorUnavailable = unavailable(actor)
-    if (actorUnavailable) return refuse(actorUnavailable)
-    const listed = fullIds.has(actor) || toolsOf.get(actor)?.has(isDelegation(toolName) ? 'Agent' : toolName)
-    if (!listed) return refuse(`${toolName} is not one of your tools. Delegate it to a bot that has it.`)
-    // remember writes to the run owner's memory.
-    if (toolName === REMEMBER && actor !== bot.id) return refuse('Only the bot you are talking to can remember.')
-    if (isDelegation(toolName) && isChief) {
-      if (actor !== bot.id) return refuse('Only the Chief of Staff delegates.')
-      const target = str(toolInput, 'subagent_type')
-      if (!isTeam(target)) return refuse('Delegate only to your team, using a bot id as subagent_type.')
-      const targetUnavailable = unavailable(target)
-      if (targetUnavailable) return refuse(targetUnavailable)
+    const call = {
+      ownerId: bot.id,
+      team,
+      agentId: input.agent_id,
+      agentType: input.agent_type,
+      toolName: input.tool_name,
+      input: (input.tool_input ?? {}) as Record<string, unknown>,
     }
-    if (fullIds.has(actor) && toolName.startsWith('mcp__') && !mcpReadOnly.has(toolName)) await learnMcpTools()
-    const decision = classifyTool(toolName, toolInput, workspaceOf(actor), accessOf(actor))
-    if (decision.kind === 'deny') return refuse(decision.reason)
-    // The CLI auto-allows commands it judges read-only (`ls`), so returning
-    // nothing here would skip canUseTool. 'ask' forces the approval path.
-    if (decision.kind === 'ask') {
-      return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'ask' } }
-    }
-    return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'allow', updatedInput: decision.input } }
+    caller.set(input.tool_use_id, actorOf(call))
+    const reason = guardToolCall(call, getBot)
+    if (!reason) return {}
+    return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: reason } }
   }
 
-  const canUseTool: CanUseTool = async (toolName, input, { signal, toolUseID }) => {
-    const actor = caller.get(toolUseID) ?? bot.id
-    const decision = classifyTool(toolName, input, workspaceOf(actor), accessOf(actor))
-    if (decision.kind === 'allow') return { behavior: 'allow', updatedInput: decision.input }
-    if (decision.kind === 'deny') return { behavior: 'deny', message: decision.reason }
-    const action = describeAction(toolName, input)
-    const approval = requestApproval(actor, bot.id, action, signal)
-    const card: ChatItem = { kind: 'approval', id: approval.id, botId: actor, action, state: 'pending', at: now() }
-    save(card)
-    const outcome = await approval.outcome
-    save({ ...card, state: outcome }, true)
-    if (run.abort.signal.aborted) return { behavior: 'deny', message: 'Stopped.' }
-    return outcome === 'allowed' ? { behavior: 'allow', updatedInput: input } : { behavior: 'deny', message: DENY_MESSAGE }
+  async function approve(
+    actor: BotId,
+    card: Pick<ApprovalItem, 'action' | 'detail' | 'body' | 'plan'>,
+    input: Record<string, unknown>,
+    signal: AbortSignal,
+  ): Promise<PermissionResult> {
+    const { id, outcome } = awaitDecision<'approval'>({ kind: 'approval', botId: actor, ownerId: bot.id }, signal)
+    const item: ApprovalItem = { kind: 'approval', id, botId: actor, ...card, state: 'pending', at: now() }
+    save(bot.id, item)
+    const state = await outcome
+    save(bot.id, { ...item, state }, true)
+    if (state === 'allowed') return { behavior: 'allow', updatedInput: input }
+    if (state === 'expired') return { behavior: 'deny', message: 'The user did not answer in time.' }
+    return {
+      behavior: 'deny',
+      message: card.plan ? 'The user wants you to keep planning.' : 'The user denied this action.',
+    }
   }
 
-  // A full bot gets the user's own plugins, skills and connectors; so does the
-  // Chief when it delegates to one. The guard still decides every call.
-  const userSetup = fullIds.size > 0
+  async function ask(
+    actor: BotId,
+    questions: Question[],
+    input: Record<string, unknown>,
+    signal: AbortSignal,
+  ): Promise<PermissionResult> {
+    const { id, outcome } = awaitDecision<'question'>({ kind: 'question', botId: actor, ownerId: bot.id, questions }, signal)
+    const item: QuestionItem = { kind: 'question', id, botId: actor, questions, answers: null, state: 'pending', at: now() }
+    save(bot.id, item)
+    const result = await outcome
+    if (result === 'expired') {
+      save(bot.id, { ...item, state: 'expired' }, true)
+      return { behavior: 'deny', message: 'The user did not answer in time.' }
+    }
+    save(bot.id, { ...item, answers: result.answers, state: 'answered' }, true)
+    return { behavior: 'allow', updatedInput: { ...input, answers: result.answers } }
+  }
+
+  const canUseTool: CanUseTool = async (toolName, input, opts) => {
+    const actor = caller.get(opts.toolUseID) ?? bot.id
+    if (toolName === 'AskUserQuestion') {
+      const questions = parseQuestions(input)
+      if (questions) return ask(actor, questions, input, opts.signal)
+    }
+    if (toolName === 'ExitPlanMode') {
+      const card = { action: `${nameOf(actor)} has a plan ready`, detail: null, body: planText(input), plan: true }
+      return approve(actor, card, input, opts.signal)
+    }
+    const card = {
+      action: opts.title ?? `${nameOf(actor)} wants to use ${opts.displayName ?? mcpName(toolName) ?? toolName}`,
+      detail: opts.description ?? null,
+      body: JSON.stringify(input, null, 2),
+      plan: false,
+    }
+    return approve(actor, card, input, opts.signal)
+  }
+
   const options: Options = {
-    // The SDK records a session's prompt and reuses it on resume by default.
-    // Job, memory and access live in this prompt, so edits must reach live chats.
-    systemPrompt: { type: 'custom', prompt, snapshot: false },
-    cwd: workspaceOf(bot.id),
-    additionalDirectories: team.map((b) => workspaceOf(b.id)),
-    resume,
-    maxTurns: isChief ? MAX_TURNS.chief : MAX_TURNS.worker,
-    model: isChief ? MODELS.chief : MODELS.worker,
-    abortController: run.abort,
-    tools: userSetup ? undefined : sessionTools,
-    mcpServers: { willbot: rememberServer(bot.id) },
-    agents,
+    systemPrompt: {
+      type: 'preset',
+      preset: 'claude_code',
+      append: employeeBlock(bot, { canRemember: true, team: teamBots }),
+      snapshot: false,
+    },
+    settingSources: ['user', 'project', 'local'],
+    cwd,
+    additionalDirectories: teamFolders,
+    resume: readChat(bot.id).sessionId ?? undefined,
+    model: bot.model ?? undefined,
+    mcpServers: { willbot: rememberServer(bot.id), ...(bot.browser ? { playwright: playwright(cwd) } : {}) },
+    agents: teamBots.length ? agentDefinitions(teamBots) : undefined,
     hooks: { PreToolUse: [{ hooks: [guard] }] },
     canUseTool,
-    settingSources: userSetup ? ['user'] : [],
-    permissionMode: 'default',
     env: sdkEnv(),
   }
 
-  let reported = false
+  const q = query({ prompt: prompt(), options })
+  const live: LiveSession = {
+    botId: bot.id,
+    query: q,
+    inbox,
+    state: initialSession,
+    team,
+    idleTimer: null,
+    interrupt: async () => {
+      interrupted = true
+      await q.interrupt()
+    },
+  }
+
   const fail = (text: string) => {
-    reported = true
     const hint = /authenticat|oauth|log ?in/i.test(text)
       ? '\nLog in with your Claude plan: run `claude` in a terminal, then /login, and try again.'
       : ''
-    save({ kind: 'error', id: id(), text: text + hint, at: now() })
+    save(bot.id, { kind: 'error', id: newId(), text: text + hint, at: now() })
+  }
+  const activity = (botId: BotId, label: string) => save(bot.id, { kind: 'activity', id: newId(), botId, label, at: now() })
+  const speakerOf = (toolUseId: string | null | undefined) =>
+    (toolUseId && live.state.delegated.get(toolUseId)) || bot.id
+  const announce = (taskId: string) => {
+    const task = tasks.get(taskId)
+    if (!task || task.announced) return
+    task.announced = true
+    if (task.toolUseId) backgroundToolUses.add(task.toolUseId)
+    activity(speakerOf(task.toolUseId), `Started in the background: ${short(task.description, 80)}`)
   }
 
   const handle = (msg: SDKMessage) => {
     // Only a session that produced a real turn is worth resuming.
     if ((msg.type === 'assistant' && !msg.error) || (msg.type === 'result' && !msg.is_error)) {
-      setSessionId(botId, msg.session_id)
+      setSessionId(bot.id, msg.session_id)
     }
     if (msg.type === 'assistant') {
       if (msg.error) return
-      const speaker = msg.parent_tool_use_id ? (delegations.get(msg.parent_tool_use_id) ?? bot.id) : bot.id
+      const speaker = speakerOf(msg.parent_tool_use_id)
       for (const block of msg.message.content) {
         if (block.type === 'text' && block.text.trim()) {
-          save({ kind: 'assistant', id: id(), botId: speaker, text: block.text.trim(), at: now() })
+          save(bot.id, { kind: 'assistant', id: newId(), botId: speaker, text: block.text.trim(), at: now() })
         } else if (block.type === 'tool_use') {
           const input = (block.input ?? {}) as Record<string, unknown>
-          if (isDelegation(block.name)) {
-            const target = str(input, 'subagent_type')
-            if (workspaces.has(target)) {
-              delegations.set(block.id, target)
-              run.delegated.add(target)
-            }
+          const target = str(input, 'subagent_type')
+          if (isDelegation(block.name) && team.has(target)) {
+            dispatch(live, { type: 'delegated', toolUseId: block.id, botId: target })
           }
-          save({ kind: 'activity', id: id(), botId: speaker, label: activityLabel(block.name, input, nameOf), at: now() })
+          activity(speaker, activityLabel(block.name, input, nameOf))
         }
       }
-    } else if (msg.type === 'user' && Array.isArray(msg.message.content)) {
+      return
+    }
+    if (msg.type === 'user' && Array.isArray(msg.message.content)) {
       for (const block of msg.message.content) {
-        if (block.type !== 'tool_result') continue
-        const target = delegations.get(block.tool_use_id)
-        if (!target) continue
-        delegations.delete(block.tool_use_id)
-        if (![...delegations.values()].includes(target)) run.delegated.delete(target)
+        if (block.type === 'tool_result' && !backgroundToolUses.has(block.tool_use_id)) {
+          dispatch(live, { type: 'delegation_ended', toolUseId: block.tool_use_id })
+        }
       }
-    } else if (msg.type === 'result') {
+      return
+    }
+    if (msg.type === 'result') {
+      const stopped = interrupted
+      interrupted = false
+      if (stopped && msg.is_error) return activity(bot.id, 'Stopped.')
       if (msg.subtype === 'success') {
-        if (msg.is_error) fail(msg.result || 'The run failed.')
-      } else if (msg.subtype === 'error_max_turns') {
-        fail(`Stopped at the turn limit (${msg.num_turns} turns). Send another message to continue.`)
+        if (msg.is_error) fail(msg.result || 'The turn failed.')
       } else {
-        fail(msg.errors.join('\n') || `The run ended early (${msg.subtype}).`)
+        fail(msg.errors.join('\n') || `The turn ended early (${msg.subtype}).`)
+      }
+      return
+    }
+    if (msg.type !== 'system') return
+    switch (msg.subtype) {
+      case 'session_state_changed':
+        return dispatch(live, { type: 'cli_state', state: msg.state })
+      case 'background_tasks_changed':
+        return dispatch(live, { type: 'background', taskIds: msg.tasks.filter((t) => !t.ambient).map((t) => t.task_id) })
+      case 'task_started':
+        tasks.set(msg.task_id, { description: msg.description, toolUseId: msg.tool_use_id, announced: false })
+        if (msg.is_backgrounded && !msg.ambient && !msg.skip_transcript) announce(msg.task_id)
+        return
+      case 'task_updated':
+        if (msg.patch.is_backgrounded) announce(msg.task_id)
+        return
+      case 'task_notification': {
+        const task = tasks.get(msg.task_id)
+        tasks.delete(msg.task_id)
+        if (task?.announced) {
+          const verb = { completed: 'Finished', failed: 'Failed', stopped: 'Stopped' }[msg.status]
+          activity(speakerOf(task.toolUseId), `${verb} in the background: ${short(msg.summary || task.description, 80)}`)
+        }
+        const toolUseId = msg.tool_use_id ?? task?.toolUseId
+        if (toolUseId) dispatch(live, { type: 'delegation_ended', toolUseId })
+        return
       }
     }
   }
 
-  // claude.ai connectors connect seconds after start. A prompt sent at once
-  // runs its first turn without them, and the model reports them unavailable.
-  async function* afterConnectors(): AsyncGenerator<SDKUserMessage> {
-    const deadline = Date.now() + CONNECT_WAIT_MS
-    for (;;) {
-      const servers = (await session?.mcpServerStatus().catch(() => null)) ?? []
-      const settled = servers.some((s) => s.scope === 'claudeai') && !servers.some((s) => s.status === 'pending')
-      if (settled || Date.now() >= deadline || run!.abort.signal.aborted) break
-      await new Promise((r) => setTimeout(r, 300))
-    }
-    await learnMcpTools()
-    yield { type: 'user', message: { role: 'user', content: message }, parent_tool_use_id: null, session_id: '' }
-  }
-
-  const done = (async () => {
+  void (async () => {
     try {
-      save({ kind: 'user', id: id(), text: message, at: now() })
-      session = query({ prompt: userSetup ? afterConnectors() : message, options })
-      for await (const msg of session) handle(msg)
-    } catch (e) {
-      if (run.abort.signal.aborted) save({ kind: 'error', id: id(), text: 'Stopped.', at: now() })
-      else if (!reported) fail(e instanceof Error ? e.message : String(e))
+      await q.initializationResult()
+      const deadline = Date.now() + CONNECT_WAIT_MS
+      for (;;) {
+        const servers = await q.mcpServerStatus()
+        const settled = servers.some((s) => s.scope === 'claudeai') && !servers.some((s) => s.status === 'pending')
+        if (settled || Date.now() >= deadline || live.state.phase === 'closing') break
+        await new Promise((r) => setTimeout(r, 300))
+      }
+      await matchClaudeCodeDefaults(q, cwd, bot.model)
+    } catch {
+      // A failed status check or mode switch leaves Claude Code's own defaults.
     } finally {
-      endRun(botId, run)
-      emit({ type: 'done' })
+      markReady()
+      dispatch(live, { type: 'opened' })
     }
   })()
 
-  return { done }
+  void (async () => {
+    try {
+      for await (const msg of q) handle(msg)
+    } catch (e) {
+      if (live.state.phase !== 'closing') fail(e instanceof Error ? e.message : String(e))
+    } finally {
+      closeLive(live)
+    }
+  })()
+
+  return live
+}
+
+function userMessage(text: string): SDKUserMessage {
+  return { type: 'user', message: { role: 'user', content: text }, parent_tool_use_id: null, session_id: '' }
+}
+
+// Opens the employee's session on first use; later messages join it, even mid-turn.
+export function sendMessage(bot: Bot, text: string): void {
+  save(bot.id, { kind: 'user', id: newId(), text, at: now() })
+  let live = rt.sessions.get(bot.id)
+  if (!live || live.state.phase === 'closing') {
+    try {
+      live = open(bot)
+    } catch (e) {
+      save(bot.id, { kind: 'error', id: newId(), text: e instanceof Error ? e.message : String(e), at: now() })
+      return
+    }
+    rt.sessions.set(bot.id, live)
+  }
+  live.inbox.push(userMessage(text))
+  dispatch(live, { type: 'pushed' })
+}
+
+// Stops the current turn and keeps the session. A delegated employee lives
+// inside its delegator's session, so that turn stops too.
+export async function stopBot(botId: BotId): Promise<boolean> {
+  const targets = [rt.sessions.get(botId), rt.sessions.get(delegatedBy(botId) ?? '')].filter((l) => l !== undefined)
+  await Promise.all(targets.map((l) => l.interrupt().catch(() => {})))
+  return targets.length > 0
+}
+
+export async function closeSession(botId: BotId): Promise<void> {
+  await stopBot(botId)
+  const live = rt.sessions.get(botId)
+  if (live) closeLive(live)
+}
+
+// Claude Code keeps sessions per project folder, so a new folder starts a new conversation.
+export async function changeFolder(botId: BotId): Promise<void> {
+  await closeSession(botId)
+  setSessionId(botId, null)
+}
+
+// The appended prompt is fixed for a session's life, so a changed job, memory,
+// folder or team reopens it: now if it is quiet, else after its turn.
+export function markStale(botId: BotId): void {
+  const live = rt.sessions.get(botId)
+  if (live) dispatch(live, { type: 'edited' })
+}
+
+// The Chief's prompt and subagents describe the whole team.
+export function markChiefStale(): void {
+  for (const b of listBots()) if (b.builtin === 'chief') markStale(b.id)
+}
+
+export async function applyModel(botId: BotId, model: Model): Promise<void> {
+  const live = rt.sessions.get(botId)
+  if (!live) return
+  await live.query.setModel(model ?? undefined).catch(() => dispatch(live, { type: 'edited' }))
 }

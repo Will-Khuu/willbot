@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState, type FormEvent } from 'react'
-import type { ApprovalItem, BotView, ChatItem } from '@/lib/types'
+import type { Answers, ApprovalItem, BotView, ChatItem, QuestionItem } from '@/lib/types'
 import { initialsOf, timeOf, tintOf } from './look'
 
 type Row =
@@ -19,11 +19,96 @@ function toRows(items: ChatItem[]): Row[] {
   return rows
 }
 
-const OUTCOME: Record<ApprovalItem['state'], string> = {
-  pending: '',
-  allowed: 'Approved.',
-  denied: 'Held back. The bot was told not to retry.',
-  expired: 'No answer in time, so it was not done.',
+function outcomeOf(item: ApprovalItem): string {
+  if (item.state === 'allowed') return 'Approved.'
+  if (item.state === 'expired') return 'No answer in time, so it was not done.'
+  if (item.state === 'denied') return item.plan ? 'Sent back to keep planning.' : 'Denied.'
+  return ''
+}
+
+const OTHER = '__other__'
+
+function QuestionCard({ item, who, onAnswer }: { item: QuestionItem; who: string; onAnswer: (a: Answers) => Promise<void> }) {
+  const [picked, setPicked] = useState<Record<string, string[]>>({})
+  const [other, setOther] = useState<Record<string, string>>({})
+  const answerOf = (q: QuestionItem['questions'][number]) =>
+    (picked[q.question] ?? [])
+      .map((label) => (label === OTHER ? (other[q.question] ?? '').trim() : label))
+      .filter(Boolean)
+      .join(', ')
+  const complete = item.questions.every((q) => answerOf(q))
+  const toggle = (question: string, label: string, multi: boolean) =>
+    setPicked((cur) => {
+      const now = cur[question] ?? []
+      if (!multi) return { ...cur, [question]: [label] }
+      return { ...cur, [question]: now.includes(label) ? now.filter((l) => l !== label) : [...now, label] }
+    })
+
+  const submit = (e: FormEvent) => {
+    e.preventDefault()
+    if (!complete) return
+    void onAnswer(Object.fromEntries(item.questions.map((q) => [q.question, answerOf(q)])))
+  }
+
+  return (
+    <form className="approvalCard" onSubmit={submit}>
+      <div className="cardLabel approvalLabel">{who} has a question</div>
+      {item.questions.map((q, qi) => {
+        const name = `${item.id}-${qi}`
+        const type = q.multiSelect ? 'checkbox' : 'radio'
+        const chosen = picked[q.question] ?? []
+        return (
+          <fieldset key={q.question} className="question" disabled={item.state !== 'pending'}>
+            <legend className="questionText">
+              <span className="chip">{q.header}</span> {q.question}
+            </legend>
+            {q.options.map((o) => (
+              <label key={o.label} className="option">
+                <input
+                  type={type}
+                  name={name}
+                  checked={chosen.includes(o.label) || item.answers?.[q.question]?.split(', ').includes(o.label) === true}
+                  onChange={() => toggle(q.question, o.label, q.multiSelect)}
+                />
+                <span>
+                  <span className="optionLabel">{o.label}</span>
+                  {o.description && <span className="optionDescription">{o.description}</span>}
+                </span>
+              </label>
+            ))}
+            {item.state === 'pending' && (
+              <label className="option">
+                <input
+                  type={type}
+                  name={name}
+                  checked={chosen.includes(OTHER)}
+                  onChange={() => toggle(q.question, OTHER, q.multiSelect)}
+                />
+                <input
+                  className="field"
+                  placeholder="Other"
+                  aria-label={`Other answer to: ${q.question}`}
+                  value={other[q.question] ?? ''}
+                  onFocus={() => !chosen.includes(OTHER) && toggle(q.question, OTHER, q.multiSelect)}
+                  onChange={(e) => setOther((cur) => ({ ...cur, [q.question]: e.target.value }))}
+                />
+              </label>
+            )}
+            {item.state === 'answered' && item.answers && <div className="approvalOutcome">Answered: {item.answers[q.question]}</div>}
+          </fieldset>
+        )
+      })}
+      {item.state === 'pending' ? (
+        <div className="approvalButtons">
+          <button className="darkButton" type="submit" disabled={!complete}>
+            Send answers
+          </button>
+        </div>
+      ) : (
+        item.state === 'expired' && <div className="approvalOutcome">No answer in time.</div>
+      )}
+    </form>
+  )
 }
 
 type Props = {
@@ -38,6 +123,7 @@ type Props = {
   onStop: () => Promise<void>
   onTakeOver: () => Promise<void>
   onDecide: (id: string, decision: 'allow' | 'deny') => Promise<void>
+  onAnswer: (id: string, answers: Answers) => Promise<void>
   onToggleDetails: () => void
 }
 
@@ -52,18 +138,21 @@ export function ChatPane(props: Props) {
     if (el) el.scrollTop = el.scrollHeight
   }, [items.length, working])
 
+  // Like Claude Code, a message sent mid-turn joins the session's queue. Only
+  // an employee working inside another's session cannot take messages.
+  const closed = bot.paused || blocked || bot.delegatedBy !== null
   const submit = (e: FormEvent) => {
     e.preventDefault()
     const text = draft.trim()
-    if (!text || working || bot.paused || blocked) return
+    if (!text || closed) return
     setDraft('')
     void props.onSend(text)
   }
 
   const placeholder = bot.paused
     ? `Hand back to message ${bot.name}`
-    : working
-      ? `${bot.name} is working…`
+    : bot.delegatedBy
+      ? `${bot.name} is ${bot.statusLine.toLowerCase()}…`
       : `Message ${bot.name}`
 
   return (
@@ -144,19 +233,38 @@ export function ChatPane(props: Props) {
                 <div key={item.id} className="approvalCard">
                   <div className="cardLabel approvalLabel">{nameOf(item.botId)} needs your approval</div>
                   <div className="approvalAction">{item.action}</div>
+                  {item.detail && <div className="approvalDetail">{item.detail}</div>}
+                  {item.body &&
+                    (item.plan ? (
+                      <pre className="approvalBody">{item.body}</pre>
+                    ) : (
+                      <details>
+                        <summary className="approvalDetail">Input</summary>
+                        <pre className="approvalBody">{item.body}</pre>
+                      </details>
+                    ))}
                   {item.state === 'pending' ? (
                     <div className="approvalButtons">
                       <button className="darkButton" onClick={() => void props.onDecide(item.id, 'allow')}>
                         Approve
                       </button>
                       <button className="secondaryButton" onClick={() => void props.onDecide(item.id, 'deny')}>
-                        Not yet
+                        {item.plan ? 'Keep planning' : 'Deny'}
                       </button>
                     </div>
                   ) : (
-                    <div className="approvalOutcome">{OUTCOME[item.state]}</div>
+                    <div className="approvalOutcome">{outcomeOf(item)}</div>
                   )}
                 </div>
+              )
+            case 'question':
+              return (
+                <QuestionCard
+                  key={item.id}
+                  item={item}
+                  who={nameOf(item.botId)}
+                  onAnswer={(answers) => props.onAnswer(item.id, answers)}
+                />
               )
             case 'error':
               return (
@@ -179,10 +287,10 @@ export function ChatPane(props: Props) {
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           placeholder={placeholder}
-          disabled={bot.paused || blocked}
+          disabled={closed}
           autoComplete="off"
         />
-        <button className="sendButton" type="submit" disabled={!draft.trim() || working || bot.paused || blocked}>
+        <button className="sendButton" type="submit" disabled={!draft.trim() || closed}>
           Send
         </button>
       </form>

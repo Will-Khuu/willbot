@@ -16,10 +16,9 @@ async function probe(): Promise<Capabilities> {
     prompt: idle(),
     options: {
       cwd: os.tmpdir(),
-      settingSources: ['user'],
+      settingSources: ['user', 'project', 'local'],
       env: sdkEnv(),
       abortController: abort,
-      permissionMode: 'default',
       canUseTool: async () => ({ behavior: 'deny', message: 'Capabilities probe.' }),
     },
   })

@@ -23,19 +23,6 @@ export const DOT: Record<BotStatus, string> = {
   paused: '#1c1b19',
 }
 
-export const TOOL_LABELS: Record<string, string> = {
-  Read: 'Read files',
-  Write: 'Write files',
-  Edit: 'Edit files',
-  NotebookEdit: 'Notebooks',
-  Glob: 'Find files',
-  Grep: 'Search files',
-  WebSearch: 'Web search',
-  WebFetch: 'Open web pages',
-  Bash: 'Shell (asks first)',
-  Agent: 'Other bots',
-}
-
 export function timeOf(iso: string): string {
   return new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
 }

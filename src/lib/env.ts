@@ -6,18 +6,26 @@ const BILLING_VARS = [
   'CLAUDE_CODE_USE_VERTEX',
   'CLAUDE_CODE_USE_FOUNDRY',
 ] as const
-const ENV_ALLOWLIST = ['PATH', 'HOME', 'USER', 'LOGNAME', 'SHELL', 'TMPDIR', 'LANG', 'LC_ALL', 'LC_CTYPE', 'TERM', 'CLAUDE_CONFIG_DIR']
+
+// Set by Next and npm for this server process, not by the user's shell. A
+// `next start` NODE_ENV=production would, for one, make an employee's
+// `npm install` skip devDependencies.
+const SERVER_VARS = /^(NODE_ENV|NODE_OPTIONS|PORT|NEXT_.*|__NEXT_.*|TURBOPACK.*|npm_.*|INIT_CWD)$/
 
 export function billingOverride(): string | null {
   return BILLING_VARS.find((name) => process.env[name]) ?? null
 }
 
-// The SDK does not merge this with process.env, so nothing else reaches the CLI.
+// The SDK replaces the CLI's environment with this, so it is the user's
+// environment as their own terminal session would see it.
 export function sdkEnv(): Record<string, string> {
-  const env: Record<string, string> = { CLAUDE_AGENT_SDK_CLIENT_APP: 'will-bot/0.1.0' }
-  for (const name of ENV_ALLOWLIST) {
-    const value = process.env[name]
-    if (value !== undefined) env[name] = value
+  const env: Record<string, string> = {}
+  for (const [name, value] of Object.entries(process.env)) {
+    if (value === undefined || SERVER_VARS.test(name) || (BILLING_VARS as readonly string[]).includes(name)) continue
+    env[name] = value
   }
+  env.CLAUDE_AGENT_SDK_CLIENT_APP = 'will-bot/0.1.0'
+  // Session idle/running events; they change what is reported, not how the session behaves.
+  env.CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS = '1'
   return env
 }

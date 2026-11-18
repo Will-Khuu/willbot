@@ -1,9 +1,8 @@
 'use client'
 
 import { useEffect, useState, type FormEvent } from 'react'
-import { isFull, type Access, type BotView, type Capabilities, type MemoryEntry } from '@/lib/types'
+import { MODELS, type BotView, type Capabilities, type MemoryEntry, type Model } from '@/lib/types'
 import { api } from './api'
-import { TOOL_LABELS } from './look'
 
 type Props = {
   bot: BotView
@@ -12,16 +11,15 @@ type Props = {
   onClose: () => void
   onSaveJob: (job: string) => Promise<void>
   onSaveMemory: (entries: MemoryEntry[]) => Promise<void>
-  onSaveAccess: (access: Access) => Promise<void>
+  onSaveFolder: (folder: string) => Promise<void>
+  onSaveModel: (model: Model) => Promise<void>
+  onSaveBrowser: (browser: boolean) => Promise<void>
   onDelete: () => Promise<void>
 }
 
 const today = () => new Date().toISOString().slice(0, 10)
 
-const ACCESS_OPTIONS: [Access, string][] = [
-  ['workspace', 'Own folder'],
-  ['full', 'Full access'],
-]
+const MODEL_LABELS: Record<NonNullable<Model>, string> = { haiku: 'Haiku', sonnet: 'Sonnet', opus: 'Opus' }
 
 function setupChips(caps: Capabilities): string[] {
   if ('error' in caps) return []
@@ -32,7 +30,8 @@ function setupChips(caps: Capabilities): string[] {
   ]
 }
 
-export function Details({ bot, memory, open, onClose, onSaveJob, onSaveMemory, onSaveAccess, onDelete }: Props) {
+export function Details(props: Props) {
+  const { bot, memory, open, onClose, onSaveJob, onSaveMemory, onDelete } = props
   const [editingJob, setEditingJob] = useState(false)
   const [job, setJob] = useState(bot.job)
   const [editing, setEditing] = useState<number | null>(null)
@@ -40,23 +39,37 @@ export function Details({ bot, memory, open, onClose, onSaveJob, onSaveMemory, o
   const [newNote, setNewNote] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [caps, setCaps] = useState<Capabilities | null>(null)
-  const full = isFull(bot)
+  const [folder, setFolder] = useState(bot.folder)
+  const [folderError, setFolderError] = useState<string | null>(null)
 
   useEffect(() => {
     setEditingJob(false)
     setEditing(null)
     setNewNote('')
     setError(null)
+    setFolderError(null)
   }, [bot.id])
+
+  useEffect(() => setFolder(bot.folder), [bot.folder])
 
   useEffect(() => {
     if (!editingJob) setJob(bot.job)
   }, [bot.job, editingJob])
 
   useEffect(() => {
-    if (!full || caps) return
+    if (caps) return
     api.capabilities().then(setCaps, (e: Error) => setCaps({ error: e.message }))
-  }, [full, caps])
+  }, [caps])
+
+  const saveFolder = async (e: FormEvent) => {
+    e.preventDefault()
+    try {
+      await props.onSaveFolder(folder.trim())
+      setFolderError(null)
+    } catch (err) {
+      setFolderError((err as Error).message)
+    }
+  }
 
   const saveJob = async (e: FormEvent) => {
     e.preventDefault()
@@ -85,9 +98,7 @@ export function Details({ bot, memory, open, onClose, onSaveJob, onSaveMemory, o
     setNewNote('')
   }
 
-  const tools = full
-    ? caps && [...setupChips(caps), 'Memory']
-    : [...bot.tools.map((t) => TOOL_LABELS[t] ?? t), 'Memory']
+  const tools = caps && [...setupChips(caps), ...(bot.browser ? ['Browser'] : []), 'Memory']
 
   return (
     <aside id="details" className={`details${open ? ' open' : ''}`} aria-label={`${bot.name} details`}>
@@ -132,38 +143,51 @@ export function Details({ bot, memory, open, onClose, onSaveJob, onSaveMemory, o
         )}
       </section>
 
-      {bot.builtin !== 'chief' && (
-        <section className="detailSection">
-          <h3 className="sectionLabel" id="access-label">
-            Access
-          </h3>
-          <div className="segmented" role="group" aria-labelledby="access-label">
-            {ACCESS_OPTIONS.map(([value, label]) => (
-              <button
-                key={value}
-                type="button"
-                className="segment"
-                aria-pressed={bot.access === value}
-                onClick={() => {
-                  if (bot.access !== value) void onSaveAccess(value)
-                }}
-              >
-                {label}
-              </button>
-            ))}
+      <section className="detailSection">
+        <h3 className="sectionLabel">Settings</h3>
+        <form className="stack" onSubmit={saveFolder}>
+          <label className="fieldLabel" htmlFor="folder-field">
+            Working folder
+          </label>
+          <div className="row">
+            <input
+              id="folder-field"
+              className="field"
+              value={folder}
+              spellCheck={false}
+              onChange={(e) => setFolder(e.target.value)}
+            />
+            <button className="secondaryButton" type="submit" disabled={!folder.trim() || folder.trim() === bot.folder}>
+              Save
+            </button>
           </div>
-          {full && (
-            <p className="detailText small">
-              Uses your Claude plugins, skills and connectors. Can read files anywhere except secrets. Asks before shell
-              commands, writes outside its folder, and anything that sends, posts or changes data.
-            </p>
-          )}
-        </section>
-      )}
+          {folderError && <p className="formError">{folderError}</p>}
+        </form>
+        <label className="fieldLabel" htmlFor="model-field">
+          Model
+        </label>
+        <select
+          id="model-field"
+          className="field"
+          value={bot.model ?? ''}
+          onChange={(e) => void props.onSaveModel(e.target.value === '' ? null : (e.target.value as NonNullable<Model>))}
+        >
+          <option value="">Default (your Claude Code model)</option>
+          {MODELS.map((m) => (
+            <option key={m} value={m}>
+              {MODEL_LABELS[m]}
+            </option>
+          ))}
+        </select>
+        <label className="option">
+          <input type="checkbox" checked={bot.browser} onChange={(e) => void props.onSaveBrowser(e.target.checked)} />
+          <span>Browser (Playwright, headless)</span>
+        </label>
+      </section>
 
       <section className="detailSection">
         <h3 className="sectionLabel">Connected tools</h3>
-        {caps && 'error' in caps && full && <p className="formError">Could not load your Claude setup: {caps.error}</p>}
+        {caps && 'error' in caps && <p className="formError">Could not load your Claude setup: {caps.error}</p>}
         {tools ? (
           <div className="chips">
             {tools.map((t) => (
@@ -264,15 +288,14 @@ export function Details({ bot, memory, open, onClose, onSaveJob, onSaveMemory, o
       <section className="detailSection autonomy">
         <h3 className="sectionLabel">Autonomy</h3>
         <p className="detailText small">
-          {full
-            ? 'Asks before shell commands, writes outside its folder, and anything that sends, posts or changes data. Never reads secrets.'
-            : 'Asks before running commands or deleting anything. Cannot read or write outside its own folder.'}
+          Runs with your Claude Code permissions and settings, exactly like a Claude Code session. When Claude Code would
+          ask you, the question shows up in this chat.
         </p>
         {bot.builtin !== 'chief' && (
           <button
             className="dangerButton"
             onClick={() => {
-              if (window.confirm(`Delete ${bot.name}? Its chat and memory are removed. Its workspace folder stays on disk.`)) {
+              if (window.confirm(`Delete ${bot.name}? Its chat and memory are removed. Its working folder stays on disk.`)) {
                 void onDelete()
               }
             }}

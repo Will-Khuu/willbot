@@ -1,13 +1,15 @@
 # will-bot
 
-A local bot manager built on the Claude Agent SDK. You run a small team of bots on your Mac. Each bot has a name, a job, its own memory, and its own workspace folder. A Chief of Staff bot hands work to the others. Bots ask you before risky actions.
+A chat UI for a small team of Claude Code employees on your Mac. Each employee is a persistent, named Claude Code session with a job, a memory and a working folder. A Chief of Staff hands work to the others.
+
+Employees run as real Claude Code sessions. They get Claude Code's own system prompt, your settings, plugins, skills, claude.ai connectors, CLAUDE.md files and permission mode, as `claude` would in that folder. will-bot adds the employee's name, job and memory to the end of the prompt, and a chat UI on top.
 
 ## Setup
 
 will-bot uses your Claude plan login, not an API key.
 
 1. Log in once with the Claude CLI. Run `claude`, then type `/login` and finish the browser sign-in. The Agent SDK reuses this login.
-2. Make sure `ANTHROPIC_API_KEY` is not set in the shell that starts the app. If it is set, the app shows a warning and refuses to run bots.
+2. Make sure `ANTHROPIC_API_KEY` is not set in the shell that starts the app. If it is set, the app shows a warning and refuses to run employees.
 3. Install and start:
 
    ```sh
@@ -21,57 +23,73 @@ Other scripts:
 
 - `npm run typecheck` runs `tsc --noEmit`.
 - `npm run build` builds for production. `npm start` serves the build on 127.0.0.1.
-- `npm run test:policy` checks the file and tool safety rules.
+- `npm test` checks the take-over rules, the session state machine, and question answer validation.
 
-## Starter bots
+## Starter employees
 
-The first start creates three bots.
+The first start creates three employees.
 
-- **Chief of Staff** coordinates the other bots and gives you short summaries. It can read its own folder and delegate to any other bot that is not paused. It runs on Sonnet with at most 12 turns per message.
-- **Research Bot** researches a topic with web search and web fetch, then writes a short brief with sources to its workspace. It runs on Haiku with at most 8 turns.
-- **Builder Bot** makes small code changes inside its workspace folder. It can run shell commands, but only after you approve each one. It runs on Haiku with at most 8 turns.
+- **Chief of Staff** coordinates the others and gives you short summaries. Its team is every other employee that is not paused. It delegates with Claude Code's Agent tool, using an employee's id as the subagent type. A teammate runs inside the Chief's session with its own job, memory, model and browser setting.
+- **Research Bot** researches a topic on the web and writes a short brief with sources to its folder.
+- **Builder Bot** makes small code changes in its folder. Its browser is on.
 
-Every bot except the Chief has an access mode, set under Access in the details panel.
+## Per-employee settings
 
-- **Full access** is the default. The bot uses your own Claude setup: the plugins, skills and claude.ai connectors (Gmail, Drive, Notion and so on) that `claude` loads for you. It can read files anywhere on your Mac except secrets. Risky actions still wait for your approval.
-- **Own folder** keeps the bot inside its workspace with only the tools on its list. Bots you create get file tools and web tools, but no shell.
+Set these in the details panel.
+
+- **Working folder.** The session's working directory. It must be an absolute path to a folder that exists. The default is `data/workspaces/<id>`. Claude Code keeps conversations per folder, so changing it closes the session and starts a new conversation in the new folder.
+- **Model.** Default uses your Claude Code model. Haiku, Sonnet and Opus pick that model. A change applies to the live session at once.
+- **Browser.** Adds the Playwright MCP server (`@playwright/mcp@0.0.84`, headless, isolated profile), writing its output to `<folder>/.playwright`. Off by default, on for Builder Bot.
+- **Job and memory.** Both are part of the prompt. An edit reopens the session: at once if it is idle, else when its turn and background work end.
+
+No turn limit is set, as in a Claude Code session.
+
+## Live sessions
+
+Each employee has one long-lived Claude Code session, not one process per message.
+
+- The first message opens it, resuming the saved conversation. Before that message goes in, will-bot waits up to 12 seconds for your claude.ai connectors to connect.
+- Later messages join the same session, even while it is working, the way Claude Code takes messages mid-turn. The exceptions are a paused employee and one working for the Chief.
+- `POST /api/chat` returns at once. Replies stream on `GET /api/chats/<id>/stream`. Every item is saved to the chat file before it is sent, so a reload shows everything.
+- **Stop** interrupts the current turn and keeps the session. **Take over** interrupts, closes the session and pauses the employee. **Hand back** unpauses it. **Delete** closes the session.
+- A session closes after 15 minutes idle with no background tasks. The next message reopens it.
+- Background agents and shell commands run as they do in Claude Code. Their start and finish show up in the chat.
+- Status is **working** while a turn or a background task runs, **needs your answer** while an approval or question waits, **paused** after Take over, and **idle** otherwise.
+
+## Questions and plans
+
+- **Approvals.** When Claude Code would ask you before a tool call, the chat shows a card worded like Claude Code's own prompt, with the tool input underneath. Approve runs it once. Deny tells the employee you said no.
+- **Questions.** When an employee uses AskUserQuestion, the chat shows each question with its options: buttons, or checkboxes for multi-select, plus an Other field. Send answers returns them to the session. Multi-select answers are joined with commas.
+- **Plans.** When an employee leaves plan mode, the card shows the plan. Approve lets it start. Keep planning sends it back to plan more.
+
+An unanswered card expires after 10 minutes and counts as a no. Cards live in server memory, so restarting the server expires them.
 
 ## Where data lives
 
 Everything is plain files under `./data`:
 
-- `data/bots.json` holds the bot list.
-- `data/chats/<id>.json` holds each transcript and the SDK session id used to resume it.
-- `data/memory/<id>.md` holds each bot's memory, one `- YYYY-MM-DD: note` line per entry. You can edit it in the details panel, and bots add to it with their `remember` tool.
-- `data/workspaces/<id>/` is each bot's working folder.
+- `data/bots.json` holds the employee list and settings. Files from older versions still load; settings they lack get their defaults.
+- `data/chats/<id>.json` holds each transcript and the Claude Code session id used to resume it.
+- `data/memory/<id>.md` holds each employee's memory, one `- YYYY-MM-DD: note` line per entry. You can edit it in the details panel, and employees add to it with their `remember` tool.
+- `data/workspaces/<id>/` is each employee's default working folder.
 
-## Safety model
+## Safety
 
-- **Workspace jail.** Every file tool call goes through a PreToolUse hook before it runs. For an own-folder bot, paths must resolve, after following symlinks, to a location inside that bot's own workspace. Paths with `..`, absolute paths outside the folder, symlinks that point out, and broken symlinks are refused. Allowed paths are rewritten to their absolute real path, so the tool touches exactly the file that was checked.
-- **No secrets.** Any file whose name starts with `.env` is refused, including through a symlink.
-- **Own tools only.** Each own-folder bot can use only the tools on its own list. The Chief's session has every team tool available so its subagents can work, and the hook refuses any tool a given bot does not have. Only the bot that owns the run can use `remember`.
-- **Team-only delegation.** The Chief can delegate only to bots on its team, by bot id. Built-in agents and forks are refused. A delegated bot runs in the foreground on its own model, and any model, effort, isolation, or mode override is stripped. A tool call from a subagent that is not a team bot is refused.
-- **Full access policy.** A full-access bot can read and list files anywhere, except secrets: any `.env*` file or folder, `~/.ssh`, `~/.aws`, `~/.gnupg`, `~/.config/gh`, `~/.netrc`, `~/Library/Keychains`, `~/.claude/.credentials*`, and files named `id_rsa*`, `id_ed25519*` or `*.pem`. Symlinks are followed before the check. It writes freely inside its own folder. Writes elsewhere and searches (Grep) outside its folder ask first. Shell commands always ask. A claude.ai connector tool runs without asking only when its server marks it read-only and not destructive. Every other connector tool asks, including tools with no marking. Scheduling, notifications, worktrees, and messages to other sessions ask too. The bot cannot ask questions through a popup or use plan mode; it asks in its reply. Its own subagents work under the same rules. When the Chief delegates to a full-access bot, that bot works under these rules in its own folder, and the Chief stays limited to reading its folder and delegating.
-- **Approvals.** Shell commands and any tool not on the allow list pause the run and show an approval card. This applies even to commands the SDK would normally treat as safe, such as `ls`. Approve lets it run once. Not yet denies it and tells the bot not to retry. An unanswered card expires after 10 minutes and counts as a denial.
-- **No inherited permissions.** Own-folder bots run with `settingSources: []`. Full-access bots, and the Chief when its team has one, load your user settings to get your plugins and connectors. In both cases the hook decides every tool call and the session runs in the default permission mode, so allow rules and modes in your own `~/.claude` settings never auto-approve anything for a bot.
-- **Plan usage.** Full-access bots load your plugins, and those plugins' startup hooks add text to every run's prompt. Each message costs more of your Pro plan than an own-folder bot's.
-- **Plan billing only.** Bots refuse to run while `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_BASE_URL`, `CLAUDE_CODE_USE_BEDROCK`, `CLAUDE_CODE_USE_VERTEX`, or `CLAUDE_CODE_USE_FOUNDRY` is set, and the banner names the variable. The app only checks whether these are set and never reads their values.
-- **Minimal environment.** The SDK gets only `PATH`, `HOME`, `USER`, `LOGNAME`, `SHELL`, `TMPDIR`, `LANG`, `LC_ALL`, `LC_CTYPE`, `TERM`, and `CLAUDE_CONFIG_DIR` from the server's environment. Other variables, including secrets, never reach a bot.
-- **No local web fetches.** WebFetch accepts only http and https URLs. It refuses `localhost`, `.localhost` and `.local` names, and IP addresses for this computer or a private network, including link-local and IPv4-mapped IPv6 forms.
+Employees run with your Claude Code permissions and settings, exactly like a Claude Code session. Will-bot adds no extra restrictions beyond take-over and the billing guard.
+
+- **Permission mode.** If your settings name a `permissions.defaultMode`, sessions use it. If they do not, sessions run in auto mode, as your desktop sessions do. Whenever Claude Code wants a human, the chat shows the card.
+- **Take over.** A PreToolUse hook denies every tool call from a paused or deleted employee, including one working inside the Chief's session. It also denies the Chief's delegation to a paused or deleted employee. Only the employee you are talking to can use `remember`; the Chief's teammates cannot write to its memory.
+- **Plan billing only.** Employees refuse to run while `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_BASE_URL`, `CLAUDE_CODE_USE_BEDROCK`, `CLAUDE_CODE_USE_VERTEX`, or `CLAUDE_CODE_USE_FOUNDRY` is set, and the banner names the variable. The app only checks whether these are set and never reads their values.
+- **Environment.** Sessions get the server's environment, as your terminal would give it to `claude`, minus the billing variables and the ones Next and npm set for the server itself (`NODE_ENV`, `NODE_OPTIONS`, `PORT`, `INIT_CWD`, `npm_*`, `NEXT_*`, `__NEXT_*`, `TURBOPACK*`). So SSH agent, proxy and tool variables reach employees, and so does any secret in the shell that starts the server.
 - **Localhost only.** The server binds to 127.0.0.1. API requests with a foreign `Host` or `Origin` header are rejected, which blocks DNS rebinding and cross-site posts. Write requests must be `application/json`.
-- **Take over.** Take over aborts the bot's run within a second or two and keeps its session. If the bot is working for the Chief, the Chief's run stops too. Stop and Delete do the same. A paused bot cannot be messaged or delegated to until you hand control back, and every tool call rechecks this, so a bot paused or deleted mid-run gets no further tools.
 
 ## Known limits
 
-- One run per bot at a time. A second message to a busy bot is refused until the first run ends. This includes a bot working for the Chief.
-- Delegated bots run inside the Chief's session. They cannot use `remember`, and their shell commands run from the Chief's folder. File tools still go through each bot's own workspace check.
-- Full-access runs cost more plan usage, because your plugins' startup hooks add prompt text to every run.
-- A full-access bot's first connector call in a run waits for one status lookup. A connector that has not connected yet asks before every call.
-- Full-access bots load your user settings, so an `env` block in `~/.claude/settings.json` reaches them. Keep API keys out of it.
+- Teammates run inside the Chief's session. They cannot use `remember`, and their shell commands start from the Chief's folder.
+- Stopping or taking over a teammate that is working for the Chief also stops the Chief's turn.
+- Sessions load your plugins, and their startup hooks add text to every session's prompt, which costs plan usage.
+- Your user settings load, so an `env` block in `~/.claude/settings.json` reaches every employee. Keep API keys out of it.
 - Connected tools in the details panel come from a check that starts your Claude setup without a prompt. It takes a few seconds and is cached for 10 minutes.
-- Grep across a bot's own workspace can match the contents of a `.env` file that the bot itself created there with an approved shell command.
-- WebFetch checks the URL text only. A public hostname whose DNS points at a private address is not caught.
-- Approvals live in server memory. Restarting the server expires any pending card.
-- If a saved SDK session disappears from `~/.claude`, resuming fails. Delete that bot's `data/chats/<id>.json` to start fresh.
-- Deleting a bot removes its chat and memory but leaves its workspace folder on disk.
+- If a saved Claude Code session disappears from `~/.claude`, resuming fails. Delete that employee's `data/chats/<id>.json` to start fresh.
+- Deleting an employee removes its chat and memory but leaves its working folder on disk.
 - No group channel, routines, or "teach a task" yet.

@@ -521,6 +521,73 @@ p {
   font-weight: 600;
 }
 
+.approvalDetail {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--muted);
+  cursor: default;
+}
+
+summary.approvalDetail {
+  cursor: pointer;
+}
+
+.approvalBody {
+  margin: 0;
+  max-height: 400px;
+  overflow: auto;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--chat);
+  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+  font-size: 12.5px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.question {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.questionText {
+  padding: 0;
+  margin-bottom: 4px;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.option {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.option > input[type='radio'],
+.option > input[type='checkbox'] {
+  margin-top: 3px;
+  flex: none;
+}
+
+.optionLabel {
+  font-weight: 600;
+}
+
+.optionDescription {
+  display: block;
+  font-size: 13px;
+  color: var(--muted);
+}
+
 .errorCard {
   border: 1px solid var(--error-line);
   background: var(--error-bg);

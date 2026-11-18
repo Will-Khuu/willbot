@@ -1,11 +1,15 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { BotView, ChatItem, MemoryEntry, StreamEvent } from '@/lib/types'
-import { api, localError, streamChat } from './api'
+import type { Answers, BotView, ChatItem, MemoryEntry, Model, StreamEvent } from '@/lib/types'
+import { api, localError } from './api'
 import { Roster } from './Roster'
 import { ChatPane } from './ChatPane'
 import { Details } from './Details'
+
+function upsertMissing(items: ChatItem[], item: ChatItem): ChatItem[] {
+  return items.some((x) => x.id === item.id) ? items : [...items, item]
+}
 
 function upsert(items: ChatItem[], item: ChatItem): ChatItem[] {
   const i = items.findIndex((x) => x.id === item.id)
@@ -21,7 +25,6 @@ export function App() {
   const [items, setItems] = useState<ChatItem[] | null>(null)
   const [memory, setMemory] = useState<MemoryEntry[]>([])
   const [billingVar, setBillingVar] = useState<string | null>(null)
-  const [streamingId, setStreamingId] = useState<string | null>(null)
   const [detailsOpen, setDetailsOpen] = useState(false)
   const selectedRef = useRef(selectedId)
   selectedRef.current = selectedId
@@ -38,7 +41,8 @@ export function App() {
   const refreshChat = useCallback(async (id: string) => {
     try {
       const chat = await api.chat(id)
-      if (selectedRef.current === id) setItems(chat.items)
+      // Items streamed in while the file was being read are kept.
+      if (selectedRef.current === id) setItems((cur) => (cur ?? []).reduce(upsertMissing, chat.items))
     } catch {}
   }, [])
 
@@ -66,36 +70,34 @@ export function App() {
     void refreshMemory(selectedId)
   }, [selectedId, refreshChat, refreshMemory])
 
-  // Runs started elsewhere (another tab, a delegation, a run left going when
-  // you switched bots) have no live stream here, so follow them by polling.
-  const followRun = bot !== null && bot.status !== 'idle' && streamingId !== selectedId
+  // One stream per selected employee carries everything its session does,
+  // whoever started the turn. A reconnect reloads the chat file to catch up.
   useEffect(() => {
-    if (!followRun) return
-    const t = setInterval(() => {
-      void refreshChat(selectedId)
-      void refreshMemory(selectedId)
-    }, 2000)
-    return () => clearInterval(t)
-  }, [followRun, selectedId, refreshChat, refreshMemory])
+    const id = selectedId
+    const source = new EventSource(`/api/chats/${id}/stream`)
+    source.onopen = () => void refreshChat(id)
+    source.onmessage = (msg: MessageEvent<string>) => {
+      if (selectedRef.current !== id) return
+      const e = JSON.parse(msg.data) as StreamEvent
+      if (e.type === 'status') {
+        void refreshBots()
+        void refreshMemory(id)
+        return
+      }
+      setItems((cur) => upsert(cur ?? [], e.item))
+      if (e.item.kind === 'approval' || e.item.kind === 'question') void refreshBots()
+    }
+    return () => source.close()
+  }, [selectedId, refreshBots, refreshChat, refreshMemory])
 
   const send = async (text: string) => {
     const id = selectedId
-    setStreamingId(id)
-    const onEvent = (e: StreamEvent) => {
-      if (selectedRef.current !== id) return
-      if (e.type === 'item' || e.type === 'item_update') setItems((cur) => upsert(cur ?? [], e.item))
-      if (e.type === 'item' && e.item.kind === 'approval') void refreshBots()
-    }
-    void refreshBots()
     try {
-      await streamChat(id, text, onEvent)
+      await api.send(id, text)
     } catch (e) {
       if (selectedRef.current === id) setItems((cur) => [...(cur ?? []), localError((e as Error).message)])
-    } finally {
-      setStreamingId(null)
-      void refreshBots()
-      void refreshMemory(id)
     }
+    void refreshBots()
   }
 
   const run = (fn: () => Promise<unknown>) => async () => {
@@ -115,6 +117,19 @@ export function App() {
     )
     await run(() => api.decide(approvalId, decision))()
     await refreshChat(selectedId)
+  }
+
+  const answer = async (questionId: string, answers: Answers) => {
+    setItems((cur) =>
+      (cur ?? []).map((x) => (x.id === questionId && x.kind === 'question' ? { ...x, answers, state: 'answered' } : x)),
+    )
+    await run(() => api.answer(questionId, answers))()
+    await refreshChat(selectedId)
+  }
+
+  const patch = (body: { folder?: string; model?: Model; browser?: boolean }) => async () => {
+    await api.patchBot(selectedId, body)
+    await refreshBots()
   }
 
   const saveMemory = async (entries: MemoryEntry[]) => {
@@ -155,12 +170,13 @@ export function App() {
             bots={bots}
             items={items ?? []}
             loading={items === null}
-            working={streamingId === bot.id || bot.status === 'working' || bot.status === 'needs_approval'}
+            working={bot.status === 'working' || bot.status === 'needs_approval'}
             blocked={billingVar !== null}
             onSend={send}
             onStop={run(() => api.stop(bot.id))}
             onTakeOver={run(() => api.patchBot(bot.id, { paused: !bot.paused }))}
             onDecide={decide}
+            onAnswer={answer}
             onToggleDetails={() => setDetailsOpen((o) => !o)}
             detailsOpen={detailsOpen}
           />
@@ -178,7 +194,9 @@ export function App() {
               await refreshBots()
             }}
             onSaveMemory={saveMemory}
-            onSaveAccess={(access) => run(() => api.patchBot(bot.id, { access }))()}
+            onSaveFolder={(folder) => patch({ folder })()}
+            onSaveModel={(model) => run(patch({ model }))()}
+            onSaveBrowser={(browser) => run(patch({ browser }))()}
             onDelete={async () => {
               await api.deleteBot(bot.id)
               setSelectedId('chief')

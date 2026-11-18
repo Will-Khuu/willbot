@@ -1,7 +1,7 @@
-import { pendingApprovals } from '@/lib/runtime'
+import { pendingDecisions } from '@/lib/runtime'
 
 export const dynamic = 'force-dynamic'
 
 export function GET() {
-  return Response.json(pendingApprovals())
+  return Response.json(pendingDecisions())
 }

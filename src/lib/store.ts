@@ -16,37 +16,33 @@ const DATA_DIR = path.join(process.cwd(), 'data')
 const BOTS_FILE = path.join(DATA_DIR, 'bots.json')
 const BOT_ID = /^[a-z0-9-]{1,40}$/
 
-export const NEW_BOT_TOOLS = ['Read', 'Write', 'Edit', 'Glob', 'Grep', 'WebSearch', 'WebFetch']
+type Seed = Pick<Bot, 'id' | 'name' | 'job' | 'builtin'>
 
-const SEED: Omit<Bot, 'createdAt'>[] = [
-  {
-    id: 'chief',
-    name: 'Chief of Staff',
-    job: 'Coordinates the other bots and gives me short summaries.',
-    tools: ['Read', 'Glob', 'Grep', 'Agent'],
-    access: 'full',
-    paused: false,
-    builtin: 'chief',
-  },
+const SEED: Seed[] = [
+  { id: 'chief', name: 'Chief of Staff', job: 'Coordinates the other employees and gives me short summaries.', builtin: 'chief' },
   {
     id: 'research',
     name: 'Research Bot',
-    job: 'Researches a topic with the web tools and writes a short brief with sources to its workspace.',
-    tools: ['WebSearch', 'WebFetch', 'Read', 'Write', 'Glob', 'Grep'],
-    access: 'full',
-    paused: false,
+    job: 'Researches a topic on the web and writes a short brief with sources to its folder.',
     builtin: null,
   },
-  {
-    id: 'builder',
-    name: 'Builder Bot',
-    job: 'Makes small code changes inside its workspace folder only.',
-    tools: ['Read', 'Write', 'Edit', 'Glob', 'Grep', 'Bash'],
-    access: 'full',
-    paused: false,
-    builtin: null,
-  },
+  { id: 'builder', name: 'Builder Bot', job: 'Makes small code changes in its folder.', builtin: null },
 ]
+
+function defaultFolder(id: BotId): string {
+  return path.join(DATA_DIR, 'workspaces', id)
+}
+
+function newBot(seed: Seed, createdAt: string): Bot {
+  return {
+    ...seed,
+    folder: defaultFolder(seed.id),
+    model: null,
+    browser: seed.id === 'builder',
+    paused: false,
+    createdAt,
+  }
+}
 
 function writeAtomic(file: string, contents: string): void {
   fs.mkdirSync(path.dirname(file), { recursive: true })
@@ -72,11 +68,15 @@ export function listBots(): Bot[] {
   const raw = readText(BOTS_FILE)
   if (raw === null) {
     const now = new Date().toISOString()
-    const bots = SEED.map((b) => ({ ...b, createdAt: now }))
+    const bots = SEED.map((b) => newBot(b, now))
     saveBots(bots)
     return bots
   }
-  return BotsFileSchema.parse(JSON.parse(raw))
+  return BotsFileSchema.parse(JSON.parse(raw)).map((b) => ({
+    ...b,
+    folder: b.folder ?? defaultFolder(b.id),
+    browser: b.browser ?? b.id === 'builder',
+  }))
 }
 
 function saveBots(bots: Bot[]): void {
@@ -90,21 +90,14 @@ export function getBot(id: BotId): Bot | null {
 export function createBot(name: string, job: string): Bot {
   const bots = listBots()
   const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 30) || 'bot'
-  const bot: Bot = {
-    id: `${slug}-${randomUUID().slice(0, 4)}`,
-    name,
-    job,
-    tools: NEW_BOT_TOOLS,
-    access: 'full',
-    paused: false,
-    builtin: null,
-    createdAt: new Date().toISOString(),
-  }
+  const bot = newBot({ id: `${slug}-${randomUUID().slice(0, 4)}`, name, job, builtin: null }, new Date().toISOString())
   saveBots([...bots, bot])
   return bot
 }
 
-export function updateBot(id: BotId, patch: Partial<Pick<Bot, 'name' | 'job' | 'paused' | 'access'>>): Bot | null {
+export type BotPatch = Partial<Pick<Bot, 'name' | 'job' | 'paused' | 'folder' | 'model' | 'browser'>>
+
+export function updateBot(id: BotId, patch: BotPatch): Bot | null {
   const bots = listBots()
   const i = bots.findIndex((b) => b.id === id)
   if (i < 0) return null
@@ -114,7 +107,7 @@ export function updateBot(id: BotId, patch: Partial<Pick<Bot, 'name' | 'job' | '
   return next
 }
 
-// The workspace folder is left on disk: it may hold files the user still wants.
+// The working folder is left on disk: it may hold files the user still wants.
 export function deleteBot(id: BotId): void {
   saveBots(listBots().filter((b) => b.id !== id))
   fs.rmSync(chatFile(id), { force: true })
@@ -143,7 +136,7 @@ export function upsertChatItem(id: BotId, item: ChatItem): void {
   writeChat(chat)
 }
 
-export function setSessionId(id: BotId, sessionId: string): void {
+export function setSessionId(id: BotId, sessionId: string | null): void {
   const chat = readChat(id)
   if (chat.sessionId === sessionId) return
   writeChat({ ...chat, sessionId })
@@ -167,8 +160,8 @@ export function appendMemory(id: BotId, note: string): MemoryEntry {
   return entry
 }
 
-export function workspaceDir(id: BotId): string {
-  const dir = path.join(DATA_DIR, 'workspaces', id)
-  fs.mkdirSync(dir, { recursive: true })
-  return fs.realpathSync(dir)
+// The default folder is created on first use; a folder the user chose must already exist.
+export function ensureFolder(bot: Bot): string {
+  if (bot.folder === defaultFolder(bot.id)) fs.mkdirSync(bot.folder, { recursive: true })
+  return fs.realpathSync(bot.folder)
 }

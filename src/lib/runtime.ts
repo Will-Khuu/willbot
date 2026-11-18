@@ -1,27 +1,78 @@
 import { randomUUID } from 'node:crypto'
-import type { Bot, BotId, BotStatus, BotView, Capabilities } from './types'
+import type { Query, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
+import { delegatedBots, isWorking, type SessionState } from './session'
+import type { Answers, Bot, BotId, BotStatus, BotView, Capabilities, Question, StreamEvent } from './types'
 
-export type ApprovalOutcome = 'allowed' | 'denied' | 'expired'
+export class AsyncQueue<T> implements AsyncIterable<T> {
+  private items: T[] = []
+  private waiting: ((r: IteratorResult<T>) => void) | null = null
+  private closed = false
 
-type ActiveRun = { abort: AbortController; delegated: Set<BotId> }
-type PendingApproval = {
-  botId: BotId
-  ownerId: BotId
-  action: string
-  resolve: (outcome: ApprovalOutcome) => void
+  push(item: T): void {
+    if (this.closed) return
+    if (this.waiting) {
+      this.waiting({ value: item, done: false })
+      this.waiting = null
+    } else this.items.push(item)
+  }
+
+  close(): void {
+    this.closed = true
+    this.waiting?.({ value: undefined, done: true })
+    this.waiting = null
+  }
+
+  async *[Symbol.asyncIterator](): AsyncIterator<T> {
+    for (;;) {
+      const next = this.items.shift()
+      if (next !== undefined) {
+        yield next
+        continue
+      }
+      if (this.closed) return
+      const r = await new Promise<IteratorResult<T>>((resolve) => (this.waiting = resolve))
+      if (r.done) return
+      yield r.value
+    }
+  }
 }
 
+export type LiveSession = {
+  botId: BotId
+  query: Query
+  inbox: AsyncQueue<SDKUserMessage>
+  state: SessionState
+  // The Chief's team at open time, for the guard and for attributing subagents.
+  team: ReadonlySet<BotId>
+  idleTimer: NodeJS.Timeout | null
+  // query.interrupt(), remembering it was the user's Stop so the turn's error reads as "Stopped."
+  interrupt: () => Promise<void>
+}
+
+export type ApprovalOutcome = 'allowed' | 'denied' | 'expired'
+export type QuestionOutcome = { answers: Answers } | 'expired'
+
+// One registry for everything a session waits on the user for.
+// botId is the employee asking; ownerId is the session it runs in.
+type PendingDecision = { botId: BotId; ownerId: BotId } & (
+  | { kind: 'approval'; resolve: (o: ApprovalOutcome) => void }
+  | { kind: 'question'; questions: Question[]; resolve: (o: QuestionOutcome) => void }
+)
+type DecisionKind = PendingDecision['kind']
+type OutcomeOf<K extends DecisionKind> = Parameters<Extract<PendingDecision, { kind: K }>['resolve']>[0]
+
 type Runtime = {
-  runs: Map<BotId, ActiveRun>
-  approvals: Map<string, PendingApproval>
+  sessions: Map<BotId, LiveSession>
+  decisions: Map<string, PendingDecision>
+  subscribers: Map<BotId, Set<(e: StreamEvent) => void>>
   capabilities?: { at: number; value: Promise<Capabilities> }
 }
 
-export const APPROVAL_TIMEOUT_MS = 10 * 60 * 1000
+export const DECISION_TIMEOUT_MS = 10 * 60 * 1000
 
-// Next dev re-evaluates modules on HMR; the live runs and approvals must survive it.
-const g = globalThis as typeof globalThis & { __willbot?: Runtime }
-const rt: Runtime = (g.__willbot ??= { runs: new Map(), approvals: new Map() })
+// Next dev re-evaluates modules on HMR; live sessions and decisions must survive it.
+const g = globalThis as typeof globalThis & { __willbotSessions?: Runtime }
+export const rt: Runtime = (g.__willbotSessions ??= { sessions: new Map(), decisions: new Map(), subscribers: new Map() })
 
 const CAPABILITIES_TTL_MS = 10 * 60 * 1000
 
@@ -39,87 +90,100 @@ export function cachedCapabilities(load: () => Promise<Capabilities>): Promise<C
   return value
 }
 
-export function startRun(botId: BotId): ActiveRun | null {
-  if (rt.runs.has(botId)) return null
-  const run = { abort: new AbortController(), delegated: new Set<BotId>() }
-  rt.runs.set(botId, run)
-  return run
+export function subscribe(botId: BotId, fn: (e: StreamEvent) => void): () => void {
+  let set = rt.subscribers.get(botId)
+  if (!set) rt.subscribers.set(botId, (set = new Set()))
+  set.add(fn)
+  return () => {
+    set.delete(fn)
+    if (set.size === 0 && rt.subscribers.get(botId) === set) rt.subscribers.delete(botId)
+  }
 }
 
-export function endRun(botId: BotId, run: ActiveRun): void {
-  if (rt.runs.get(botId) === run) rt.runs.delete(botId)
+export function publish(botId: BotId, e: StreamEvent): void {
+  for (const fn of rt.subscribers.get(botId) ?? []) {
+    try {
+      fn(e)
+    } catch {}
+  }
 }
 
-// A bot working as a subagent lives inside its delegator's run, so stopping it
-// means aborting that run too.
-export function stopRun(botId: BotId): boolean {
-  const runs = [...rt.runs].filter(([owner, run]) => owner === botId || run.delegated.has(botId))
-  for (const [, run] of runs) run.abort.abort()
-  return runs.length > 0
-}
+type DecisionInit<K extends DecisionKind> = Omit<Extract<PendingDecision, { kind: K }>, 'resolve'>
 
-export function isBusy(botId: BotId): boolean {
-  return rt.runs.has(botId) || delegatedBy(botId) !== null
-}
-
-export function requestApproval(
-  botId: BotId,
-  ownerId: BotId,
-  action: string,
+export function awaitDecision<K extends DecisionKind>(
+  init: DecisionInit<K>,
   signal: AbortSignal,
-): { id: string; outcome: Promise<ApprovalOutcome> } {
+): { id: string; outcome: Promise<OutcomeOf<K>> } {
   const id = randomUUID()
-  if (signal.aborted) return { id, outcome: Promise.resolve('expired') }
-  const outcome = new Promise<ApprovalOutcome>((resolve) => {
-    const finish = (o: ApprovalOutcome) => {
-      if (!rt.approvals.delete(id)) return
+  const expired = 'expired' as OutcomeOf<K>
+  if (signal.aborted) return { id, outcome: Promise.resolve(expired) }
+  const outcome = new Promise<OutcomeOf<K>>((resolve) => {
+    const finish = (o: OutcomeOf<K>) => {
+      if (!rt.decisions.delete(id)) return
       clearTimeout(timer)
       signal.removeEventListener('abort', onAbort)
       resolve(o)
     }
-    const timer = setTimeout(() => finish('expired'), APPROVAL_TIMEOUT_MS)
-    const onAbort = () => finish('expired')
+    const timer = setTimeout(() => finish(expired), DECISION_TIMEOUT_MS)
+    const onAbort = () => finish(expired)
     signal.addEventListener('abort', onAbort, { once: true })
-    rt.approvals.set(id, { botId, ownerId, action, resolve: finish })
+    rt.decisions.set(id, { ...init, resolve: finish } as PendingDecision)
   })
   return { id, outcome }
 }
 
 export function decideApproval(id: string, allow: boolean): boolean {
-  const pending = rt.approvals.get(id)
-  if (!pending) return false
-  pending.resolve(allow ? 'allowed' : 'denied')
+  const d = rt.decisions.get(id)
+  if (d?.kind !== 'approval') return false
+  d.resolve(allow ? 'allowed' : 'denied')
   return true
 }
 
-export function isApprovalPending(id: string): boolean {
-  return rt.approvals.has(id)
+export function pendingQuestions(id: string): Question[] | null {
+  const d = rt.decisions.get(id)
+  return d?.kind === 'question' ? d.questions : null
 }
 
-export function pendingApprovals(): { id: string; botId: BotId; ownerId: BotId; action: string }[] {
-  return [...rt.approvals].map(([id, a]) => ({ id, botId: a.botId, ownerId: a.ownerId, action: a.action }))
+export function answerQuestion(id: string, answers: Answers): boolean {
+  const d = rt.decisions.get(id)
+  if (d?.kind !== 'question') return false
+  d.resolve({ answers })
+  return true
+}
+
+export function isDecisionPending(id: string): boolean {
+  return rt.decisions.has(id)
+}
+
+export function expireDecisions(ownerId: BotId): void {
+  for (const d of [...rt.decisions.values()]) if (d.ownerId === ownerId) d.resolve('expired')
+}
+
+export function pendingDecisions(): { id: string; kind: DecisionKind; botId: BotId; ownerId: BotId }[] {
+  return [...rt.decisions].map(([id, d]) => ({ id, kind: d.kind, botId: d.botId, ownerId: d.ownerId }))
 }
 
 export function delegatedBy(botId: BotId): BotId | null {
-  for (const [owner, run] of rt.runs) if (run.delegated.has(botId)) return owner
+  for (const [owner, live] of rt.sessions) if (delegatedBots(live.state).has(botId)) return owner
   return null
 }
 
 export function viewBot(bot: Bot, names: Map<BotId, string>): BotView {
-  const waiting = [...rt.approvals.values()].some((a) => a.botId === bot.id || a.ownerId === bot.id)
+  const waiting = [...rt.decisions.values()].some((d) => d.botId === bot.id || d.ownerId === bot.id)
+  const live = rt.sessions.get(bot.id)
   const delegator = delegatedBy(bot.id)
   const status: BotStatus = bot.paused
     ? 'paused'
     : waiting
       ? 'needs_approval'
-      : rt.runs.has(bot.id) || delegator
+      : (live && isWorking(live.state)) || delegator
         ? 'working'
         : 'idle'
   const statusLine = {
     paused: 'Paused · you are driving',
-    needs_approval: 'Needs your approval',
+    needs_approval: 'Needs your answer',
     working: delegator ? `Working for ${names.get(delegator) ?? delegator}` : 'Working',
     idle: 'Idle',
   }[status]
-  return { ...bot, status, statusLine }
+  return { ...bot, status, statusLine, delegatedBy: delegator }
 }

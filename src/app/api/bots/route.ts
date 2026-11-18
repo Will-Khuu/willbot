@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { markChiefStale } from '@/lib/agent'
 import { error, parseBody } from '@/lib/http'
 import { createBot } from '@/lib/store'
 import { botViews } from '@/lib/views'
@@ -18,5 +19,7 @@ export async function POST(req: Request) {
   const body = await parseBody(req, CreateBot)
   if (body instanceof Response) return body
   if (botViews().length >= 12) return error(400, 'That is plenty of bots for v1.')
-  return Response.json(createBot(body.name, body.job), { status: 201 })
+  const bot = createBot(body.name, body.job)
+  markChiefStale()
+  return Response.json(bot, { status: 201 })
 }

@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { markChiefStale, markStale } from '@/lib/agent'
 import { findBot, parseBody, type IdParams } from '@/lib/http'
 import { readMemory, writeMemory } from '@/lib/store'
 
@@ -27,5 +28,7 @@ export async function PUT(req: Request, { params }: IdParams) {
   const body = await parseBody(req, Entries)
   if (body instanceof Response) return body
   writeMemory(bot.id, body.entries)
+  markStale(bot.id)
+  if (bot.builtin !== 'chief') markChiefStale()
   return Response.json(readMemory(bot.id))
 }
