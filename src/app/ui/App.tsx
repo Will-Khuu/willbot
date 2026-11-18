@@ -19,10 +19,6 @@ function isWide(): boolean {
   return window.matchMedia(WIDE).matches
 }
 
-function upsertMissing(items: ChatItem[], item: ChatItem): ChatItem[] {
-  return items.some((x) => x.id === item.id) ? items : [...items, item]
-}
-
 function upsert(items: ChatItem[], item: ChatItem): ChatItem[] {
   const i = items.findIndex((x) => x.id === item.id)
   if (i < 0) return [...items, item]
@@ -46,6 +42,9 @@ export function App() {
   const [now, setNow] = useState(() => Date.now())
   const selectedRef = useRef(selectedId)
   selectedRef.current = selectedId
+  // Item id -> the change number of its last live update (stream or a click here).
+  const changes = useRef({ n: 0, at: new Map<string, number>() })
+  const touch = (id: string) => changes.current.at.set(id, ++changes.current.n)
 
   const bot = bots.find((b) => b.id === selectedId) ?? null
   const busy = bots.some((b) => b.status !== 'idle')
@@ -67,10 +66,18 @@ export function App() {
   }, [])
 
   const refreshChat = useCallback(async (id: string) => {
+    const since = changes.current.n
     try {
       const chat = await api.chat(id)
-      // Items streamed in while the file was being read are kept.
-      if (selectedRef.current === id) setItems((cur) => (cur ?? []).reduce(upsertMissing, chat.items))
+      if (selectedRef.current !== id) return
+      // A copy that changed live after the read began is newer than the file's.
+      const newer = (itemId: string) => (changes.current.at.get(itemId) ?? -1) > since
+      setItems((cur) => {
+        const live = new Map((cur ?? []).map((x) => [x.id, x]))
+        const merged = chat.items.map((x) => (newer(x.id) ? (live.get(x.id) ?? x) : x))
+        const fetched = new Set(chat.items.map((x) => x.id))
+        return [...merged, ...(cur ?? []).filter((x) => !fetched.has(x.id))]
+      })
     } catch {}
   }, [])
 
@@ -114,6 +121,7 @@ export function App() {
   useEffect(() => {
     setItems(null)
     setMemory([])
+    changes.current.at.clear()
     void refreshChat(selectedId)
     void refreshMemory(selectedId)
   }, [selectedId, refreshChat, refreshMemory])
@@ -133,6 +141,7 @@ export function App() {
         void refreshUsage()
         return
       }
+      changes.current.at.set(e.item.id, ++changes.current.n)
       setItems((cur) => upsert(cur ?? [], e.item))
       if (e.item.kind === 'approval' || e.item.kind === 'question') void refreshBots()
     }
@@ -159,6 +168,7 @@ export function App() {
   }
 
   const decide = async (approvalId: string, decision: 'allow' | 'deny') => {
+    touch(approvalId)
     setItems((cur) =>
       (cur ?? []).map((x) =>
         x.id === approvalId && x.kind === 'approval' ? { ...x, state: decision === 'allow' ? 'allowed' : 'denied' } : x,
@@ -169,6 +179,7 @@ export function App() {
   }
 
   const answer = async (questionId: string, answers: Answers) => {
+    touch(questionId)
     setItems((cur) =>
       (cur ?? []).map((x) => (x.id === questionId && x.kind === 'question' ? { ...x, answers, state: 'answered' } : x)),
     )
@@ -203,7 +214,8 @@ export function App() {
       {billingVar && (
         <div className="keyBanner" role="alert">
           {billingVar === 'ANTHROPIC_API_KEY' ? 'API key set' : `${billingVar} is set`}: usage will be billed to the API,
-          not your plan. Unset {billingVar} and restart the server to use your Claude plan. Bots will not run until then.
+          not your plan. Remove {billingVar} from your shell or Claude Code settings, then restart the server, to use your
+          Claude plan. Bots will not run until then.
         </div>
       )}
       <div className={`columns${panelOpen && bot && !pluginsOpen ? ' withPanel' : ''}`}>

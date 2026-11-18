@@ -1,4 +1,5 @@
 import fs from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import { z } from 'zod'
 
@@ -20,4 +21,21 @@ export const ExtraFoldersSchema = z
 export function isInside(root: string, target: string): boolean {
   const rel = path.relative(root, target)
   return rel !== '' && !rel.startsWith(`..${path.sep}`) && rel !== '..' && !path.isAbsolute(rel)
+}
+
+export function plansDir(): string {
+  return path.join(process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude'), 'plans')
+}
+
+// The file's text if, after symlinks, it is a file inside dir and under maxBytes.
+export function readFileInside(dir: string, file: string, maxBytes: number): string | null {
+  try {
+    const real = fs.realpathSync(file)
+    if (!isInside(fs.realpathSync(dir), real)) return null
+    const stat = fs.statSync(real)
+    if (!stat.isFile() || stat.size >= maxBytes) return null
+    return fs.readFileSync(real, 'utf8')
+  } catch {
+    return null
+  }
 }

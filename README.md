@@ -42,7 +42,7 @@ Set these in the right panel. The screen button in the chat header shows or hide
 - **Also has access to.** Extra folders, described under Folders and context.
 - **Model.** Default uses your Claude Code model. Haiku, Sonnet and Opus pick that model. A change applies to the live session at once. With the router on, the field shows Router and is locked.
 - **Pick the model per task (pstack table).** Turns on the model router, described below. Off by default, on for Builder Bot.
-- **Can hire new employees.** Gives the employee a `hire` tool that adds an employee with a name, job, model, browser and router setting. The new employee shows in the roster at once, and the Chief's team includes it. The team still stops at 12. Off by default, on for Dr Egg. A change reopens the session.
+- **Can hire new employees.** Gives the employee a `hire` tool that adds an employee with a name, job, model, browser and router setting. You confirm each hire on a card; the new employee then shows in the roster, and the Chief's team includes it. The team still stops at 12. Off by default, on for Dr Egg. A change reopens the session.
 - **Browser.** Adds the Playwright MCP server (`@playwright/mcp@0.0.84`, headless, isolated profile), writing its output to `<folder>/.playwright`. Off by default, on for Builder Bot.
 - **Job and memory.** Both are part of the prompt. An edit reopens the session: at once if it is idle, else when its turn and background work end.
 
@@ -132,22 +132,28 @@ Everything is plain files under `./data`:
 
 ## Safety
 
-Employees run with your Claude Code permissions and settings, exactly like a Claude Code session. Will-bot adds no extra restrictions beyond take-over and the billing guard.
+Employees run with your Claude Code permissions and settings, exactly like a Claude Code session. Will-bot adds no extra restrictions beyond take-over, the billing guard and the rules for its own tools.
 
 - **Permission mode.** If your settings name a `permissions.defaultMode`, sessions use it. If they do not, sessions run in auto mode, as your desktop sessions do. Whenever Claude Code wants a human, the chat shows the card.
-- **Take over.** A PreToolUse hook denies every tool call from a paused or deleted employee, including one working inside the Chief's session. It also denies the Chief's delegation to a paused or deleted employee. Only the employee you are talking to can use `remember` and `hire`; the Chief's teammates cannot write to its memory or hire.
-- **Plan billing only.** Employees refuse to run while `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_BASE_URL`, `CLAUDE_CODE_USE_BEDROCK`, `CLAUDE_CODE_USE_VERTEX`, or `CLAUDE_CODE_USE_FOUNDRY` is set, and the banner names the variable. The app only checks whether these are set and never reads their values.
+- **Take over.** A PreToolUse hook denies every tool call from a paused or deleted employee, including one working inside the Chief's session. It also denies the Chief's delegation to a paused or deleted employee.
+- **Will-bot's own tools.** Only the employee you are talking to can use `remember` and `hire`. No subagent can, whether a teammate or a generic one, because a subagent may be acting on what it read. `hire` checks the Can hire switch on every call, so turning it off takes effect at once.
+- **Hire confirmation.** Every hire shows a card with the name, job, model, browser and router, in every permission mode. The employee is created only when you approve. Other employees' names and jobs reach a prompt only as quoted data, never as instructions.
+- **Plan files.** A plan card reads the plan file only from Claude Code's `plans` folder (`~/.claude/plans`, or under `CLAUDE_CONFIG_DIR`), after resolving links, and only under 200 KB. Otherwise it shows the plan text or the tool input. Every card's text is cut to 8 KB.
+- **Plan billing only.** Employees refuse to run while `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_BASE_URL`, `CLAUDE_CODE_USE_BEDROCK`, `CLAUDE_CODE_USE_VERTEX`, or `CLAUDE_CODE_USE_FOUNDRY` is set, or while an `apiKeyHelper` is configured. The check covers the server's environment and the `env` block of your Claude Code settings: user settings, plus the project and local settings of the employee's folder. The banner checks your home folder's settings and names what it found. The app only checks whether these are set and never reads their values.
 - **Environment.** Sessions get the server's environment, as your terminal would give it to `claude`, minus the billing variables and the ones Next and npm set for the server itself (`NODE_ENV`, `NODE_OPTIONS`, `PORT`, `INIT_CWD`, `npm_*`, `NEXT_*`, `__NEXT_*`, `TURBOPACK*`). So SSH agent, proxy and tool variables reach employees, and so does any secret in the shell that starts the server.
-- **Localhost only.** The server binds to 127.0.0.1. API requests with a foreign `Host` or `Origin` header are rejected, which blocks DNS rebinding and cross-site posts. Write requests must be `application/json`; attachments upload as base64 in JSON for that reason, and the body limit is raised to 28 MB to fit a 20 MB file.
+- **Localhost only.** The server binds to 127.0.0.1. API requests with a foreign `Host` or `Origin` header are rejected, which blocks DNS rebinding and cross-site posts. So is any API request a browser marks `Sec-Fetch-Site: cross-site` or `same-site`, and any write it marks `none`. API responses carry `X-Content-Type-Options: nosniff` and `Cross-Origin-Resource-Policy: same-origin`. Write requests must be `application/json`; attachments upload as base64 in JSON for that reason, and the body limit is raised to 28 MB to fit a 20 MB file.
+- **Names.** An employee name is 1 to 40 characters, cannot start with `-`, and cannot hold control characters. The folder picker passes the name to `osascript` behind a fixed first argument, so it is always text, never script. One picker opens at a time.
+- **File modes.** will-bot writes its data files with mode 0600 and creates its data folders with mode 0700. Files and folders made before this keep their old modes.
 
 ## Known limits
 
 - Teammates run inside the Chief's session. They cannot use `remember`, and their shell commands start from the Chief's folder.
 - Stopping or taking over a teammate that is working for the Chief also stops the Chief's turn.
 - Sessions load your plugins, and their startup hooks add text to every session's prompt, which costs plan usage.
-- Your user settings load, so an `env` block in `~/.claude/settings.json` reaches every employee. Keep API keys out of it.
+- Your user settings load, so an `env` block in `~/.claude/settings.json` reaches every employee. A billing variable there stops every employee.
 - Connected tools in the details panel come from a check that starts your Claude setup without a prompt. It takes a few seconds and is cached for 10 minutes.
-- If a saved Claude Code session disappears from `~/.claude`, resuming fails. Delete that employee's `data/chats/<id>.json` to start fresh.
+- If a saved Claude Code session disappears from `~/.claude`, will-bot starts a new conversation, says so in the chat, and sends your message there.
+- Stop with a message still queued behind the turn closes the session so that message never runs. The next message resumes the conversation.
 - Deleting an employee removes its chat, memory and routines but leaves its working folder on disk.
 - Routines run only while the will-bot server runs. Nothing wakes the computer for them.
 - The folder picker is a macOS dialog on the computer running the server.

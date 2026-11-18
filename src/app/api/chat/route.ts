@@ -27,9 +27,12 @@ export async function POST(req: Request) {
   if (body instanceof Response) return body
   const bot = findBot(body.botId)
   if (bot instanceof Response) return bot
-  const billingVar = billingOverride()
+  const billingVar = await billingOverride(bot.folder)
   if (billingVar) {
-    return error(412, `${billingVar} is set, so usage would be billed to the API, not your plan. Unset it and restart the server.`)
+    return error(
+      412,
+      `${billingVar} is set in your environment or Claude Code settings, so usage would be billed to the API, not your plan. Remove it and try again.`,
+    )
   }
   if (bot.paused) return error(409, `${bot.name} is paused. Hand control back first.`)
   const owner = delegatedBy(bot.id)

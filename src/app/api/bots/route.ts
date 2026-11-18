@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { markChiefStale } from '@/lib/agent'
 import { error, parseBody } from '@/lib/http'
+import { BotNameSchema } from '@/lib/names'
 import { createBot } from '@/lib/store'
 import { ensureScheduler } from '@/lib/scheduler'
 import { botViews } from '@/lib/views'
@@ -13,7 +14,7 @@ export function GET() {
 }
 
 const CreateBot = z.object({
-  name: z.string().trim().min(1, 'Name is required.').max(40),
+  name: BotNameSchema,
   job: z.string().trim().min(1, 'Job is required.').max(500),
 })
 

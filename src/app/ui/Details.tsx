@@ -57,6 +57,7 @@ export function Details(props: Props) {
   const settingsRef = useRef<HTMLElement>(null)
   const [folder, setFolder] = useState(bot.folder)
   const [folderError, setFolderError] = useState<string | null>(null)
+  const [picking, setPicking] = useState(false)
 
   useEffect(() => {
     setEditingJob(false)
@@ -113,8 +114,13 @@ export function Details(props: Props) {
 
   // Resolves to null when the user cancels the dialog.
   const pickFolder = async (): Promise<string | null> => {
-    const picked = await api.pickFolder(bot.id)
-    return 'path' in picked ? picked.path : null
+    setPicking(true)
+    try {
+      const picked = await api.pickFolder(bot.id)
+      return 'path' in picked ? picked.path : null
+    } finally {
+      setPicking(false)
+    }
   }
 
   const chooseFolder = () =>
@@ -357,7 +363,7 @@ export function Details(props: Props) {
               <button className="secondaryButton" type="submit" disabled={!folder.trim() || folder.trim() === bot.folder}>
                 Save
               </button>
-              <button className="secondaryButton" type="button" onClick={() => void chooseFolder()}>
+              <button className="secondaryButton" type="button" disabled={picking} onClick={() => void chooseFolder()}>
                 Choose folder…
               </button>
             </div>
@@ -387,7 +393,7 @@ export function Details(props: Props) {
             ) : (
               <p className="mutedText">Only the working folder.</p>
             )}
-            <button className="secondaryButton alignStart" type="button" onClick={() => void addExtraFolder()}>
+            <button className="secondaryButton alignStart" type="button" disabled={picking} onClick={() => void addExtraFolder()}>
               Add folder…
             </button>
           </div>

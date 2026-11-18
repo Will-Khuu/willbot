@@ -11,12 +11,14 @@ export class AsyncQueue<T> implements AsyncIterable<T> {
   private waiting: ((r: IteratorResult<T>) => void) | null = null
   private closed = false
 
-  push(item: T): void {
-    if (this.closed) return
+  // False when the queue is closed and the item was dropped.
+  push(item: T): boolean {
+    if (this.closed) return false
     if (this.waiting) {
       this.waiting({ value: item, done: false })
       this.waiting = null
     } else this.items.push(item)
+    return true
   }
 
   close(): void {
@@ -50,8 +52,11 @@ export type LiveSession = {
   idleTimer: NodeJS.Timeout | null
   // The model will-bot last set on this session; null means the employee's configured model.
   model: Alias | null
-  // query.interrupt(), remembering it was the user's Stop so the turn's error reads as "Stopped."
-  interrupt: () => Promise<void>
+  // Pushes into the inbox; false if the session already closed.
+  push: (message: SDKUserMessage) => boolean
+  // The user's Stop: interrupts the turn and drops messages queued behind it.
+  // False when nothing was running.
+  stop: () => Promise<boolean>
 }
 
 export type ApprovalOutcome = 'allowed' | 'denied' | 'expired'
@@ -74,11 +79,11 @@ type Runtime = {
   sending: Map<BotId, Set<AbortController>>
   // Each employee's sends run in order, so routes and messages never reorder.
   sendTail: Map<BotId, Promise<void>>
-  capabilities?: { at: number; value: Promise<Capabilities> }
+  capabilities?: { at: number; ttl: number; value: Promise<Capabilities> }
   // Plan usage from the latest rate_limit_event; undefined until read from data/usage.json.
   usage?: Usage | null
   // The routine scheduler's one interval. It calls `tick`, which each HMR'd module replaces.
-  scheduler?: { timer: NodeJS.Timeout; tick: () => void }
+  scheduler?: { timer: NodeJS.Timeout; tick: () => Promise<void> }
 }
 
 export const DECISION_TIMEOUT_MS = 10 * 60 * 1000
@@ -97,17 +102,19 @@ rt.sending ??= new Map()
 rt.sendTail ??= new Map()
 
 const CAPABILITIES_TTL_MS = 10 * 60 * 1000
+const CAPABILITIES_FAILURE_TTL_MS = 60 * 1000
 
-// Concurrent callers share one probe. A failed probe is not kept, so the next
-// call tries again.
+// Each probe starts a Claude Code process, so concurrent callers share one,
+// and a failure is kept for a minute rather than retried on every request.
 export function cachedCapabilities(load: () => Promise<Capabilities>): Promise<Capabilities> {
   const hit = rt.capabilities
-  if (hit && Date.now() - hit.at < CAPABILITIES_TTL_MS) return hit.value
+  if (hit && Date.now() - hit.at < hit.ttl) return hit.value
   const value = load().catch((e: unknown) => ({ error: e instanceof Error ? e.message : String(e) }))
-  const entry = { at: Date.now(), value }
+  const entry = { at: Date.now(), ttl: CAPABILITIES_TTL_MS, value }
   rt.capabilities = entry
   void value.then((v) => {
-    if ('error' in v && rt.capabilities === entry) rt.capabilities = undefined
+    // The failure's minute starts when the probe gives up, not when it began.
+    if ('error' in v) Object.assign(entry, { at: Date.now(), ttl: CAPABILITIES_FAILURE_TTL_MS })
   })
   return value
 }

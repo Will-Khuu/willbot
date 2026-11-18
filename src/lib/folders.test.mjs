@@ -3,7 +3,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { test } from 'node:test'
-import { ExtraFoldersSchema, FolderPathSchema, isInside } from './folders.ts'
+import { ExtraFoldersSchema, FolderPathSchema, isInside, plansDir, readFileInside } from './folders.ts'
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-folders-'))
 const a = path.join(tmp, 'a')
@@ -44,4 +44,29 @@ test('isInside accepts only strict descendants', () => {
 test('a relative path gets one message', () => {
   const r = ExtraFoldersSchema.safeParse(['rel/dir'])
   assert.deepEqual(r.error.issues.map((i) => i.message), ['The folder must be an absolute path.'])
+})
+
+test('a plan file is read only from inside the plans folder, and only when small', () => {
+  const plans = path.join(tmp, 'plans')
+  fs.mkdirSync(plans)
+  fs.writeFileSync(path.join(plans, 'p.md'), '# plan')
+  fs.writeFileSync(path.join(plans, 'big.md'), 'x'.repeat(300))
+  fs.writeFileSync(path.join(tmp, 'secret'), 'nope')
+  fs.symlinkSync(path.join(tmp, 'secret'), path.join(plans, 'link.md'))
+  assert.equal(readFileInside(plans, path.join(plans, 'p.md'), 200), '# plan')
+  assert.equal(readFileInside(plans, path.join(plans, 'big.md'), 200), null)
+  assert.equal(readFileInside(plans, path.join(tmp, 'secret'), 200), null)
+  assert.equal(readFileInside(plans, path.join(plans, '..', 'secret'), 200), null)
+  assert.equal(readFileInside(plans, path.join(plans, 'link.md'), 200), null)
+  assert.equal(readFileInside(plans, plans, 200), null)
+  assert.equal(readFileInside(plans, path.join(plans, 'missing.md'), 200), null)
+})
+
+test('the plans folder follows CLAUDE_CONFIG_DIR', () => {
+  const saved = process.env.CLAUDE_CONFIG_DIR
+  process.env.CLAUDE_CONFIG_DIR = '/cfg'
+  assert.equal(plansDir(), '/cfg/plans')
+  delete process.env.CLAUDE_CONFIG_DIR
+  assert.equal(plansDir(), path.join(os.homedir(), '.claude', 'plans'))
+  if (saved !== undefined) process.env.CLAUDE_CONFIG_DIR = saved
 })

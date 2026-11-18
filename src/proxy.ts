@@ -1,24 +1,11 @@
 import { NextResponse, type NextRequest } from 'next/server'
+import { API_HEADERS, refuseApiRequest } from '@/lib/origin'
 
-const LOCAL_HOSTS = new Set(['127.0.0.1', 'localhost', '[::1]'])
-
-// Binding to 127.0.0.1 is not enough: a web page can reach it through DNS
-// rebinding (foreign Host header) or a cross-site form post (foreign Origin).
 export function proxy(request: NextRequest) {
-  const hostname = (request.headers.get('host') ?? '').replace(/:\d+$/, '')
-  if (!LOCAL_HOSTS.has(hostname)) return new NextResponse('Forbidden host', { status: 403 })
-  const origin = request.headers.get('origin')
-  if (origin && origin !== 'null') {
-    let originHost = ''
-    try {
-      originHost = new URL(origin).host
-    } catch {}
-    // Host includes the port, so another local server's page cannot post here.
-    if (originHost !== request.headers.get('host')) return new NextResponse('Forbidden origin', { status: 403 })
-  } else if (origin === 'null' && request.method !== 'GET') {
-    return new NextResponse('Forbidden origin', { status: 403 })
-  }
-  return NextResponse.next()
+  const refused = refuseApiRequest(request.method, (name) => request.headers.get(name))
+  const response = refused ? new NextResponse(refused, { status: 403 }) : NextResponse.next()
+  for (const [name, value] of Object.entries(API_HEADERS)) response.headers.set(name, value)
+  return response
 }
 
 export const config = { matcher: '/api/:path*' }

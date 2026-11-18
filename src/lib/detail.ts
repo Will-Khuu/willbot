@@ -59,3 +59,5 @@ export function detailOutput(content: unknown): string {
     .join('\n')
   return truncate(text.replace(ANSI, ''))
 }
+
+export const CARD_MAX = 8 * 1024

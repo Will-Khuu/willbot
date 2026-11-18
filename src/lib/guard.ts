@@ -3,7 +3,7 @@ import type { BotId } from './types'
 export const REMEMBER = 'mcp__willbot__remember'
 export const HIRE = 'mcp__willbot__hire'
 
-export type Employee = { name: string; paused: boolean }
+export type Employee = { name: string; paused: boolean; hire: boolean }
 export type ToolCall = {
   // The employee whose session this is.
   ownerId: BotId
@@ -45,7 +45,11 @@ export function guardToolCall(call: ToolCall, lookup: (id: BotId) => Employee | 
       if (targetBlocked) return targetBlocked
     }
   }
-  if (call.toolName === REMEMBER && actor !== call.ownerId) return 'Only the employee the user is talking to can remember.'
-  if (call.toolName === HIRE && actor !== call.ownerId) return 'Only the employee the user is talking to can hire.'
+  // A subagent works from whatever it read, so it may not write memory or hire.
+  if (call.toolName === REMEMBER && call.agentId) return 'Only the employee the user is talking to can remember, not a subagent.'
+  if (call.toolName === HIRE) {
+    if (call.agentId) return 'Only the employee the user is talking to can hire, not a subagent.'
+    if (!lookup(call.ownerId)?.hire) return 'Hiring is turned off for this employee.'
+  }
   return null
 }

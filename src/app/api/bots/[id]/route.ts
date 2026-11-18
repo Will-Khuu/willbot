@@ -2,12 +2,13 @@ import { z } from 'zod'
 import { applyModel, changeFolder, closeSession, markChiefStale, markStale } from '@/lib/agent'
 import { ExtraFoldersSchema, FolderPathSchema } from '@/lib/folders'
 import { error, findBot, parseBody, type IdParams } from '@/lib/http'
+import { BotNameSchema } from '@/lib/names'
 import { deleteBot, updateBot } from '@/lib/store'
 import { ModelSchema } from '@/lib/types'
 
 const PatchBot = z
   .object({
-    name: z.string().trim().min(1).max(40).optional(),
+    name: BotNameSchema.optional(),
     job: z.string().trim().min(1).max(500).optional(),
     paused: z.boolean().optional(),
     folder: FolderPathSchema.optional(),

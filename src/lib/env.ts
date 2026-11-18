@@ -1,3 +1,6 @@
+import os from 'node:os'
+import { resolveSettings } from '@anthropic-ai/claude-agent-sdk'
+
 const BILLING_VARS = [
   'ANTHROPIC_API_KEY',
   'ANTHROPIC_AUTH_TOKEN',
@@ -12,8 +15,27 @@ const BILLING_VARS = [
 // `npm install` skip devDependencies.
 const SERVER_VARS = /^(NODE_ENV|NODE_OPTIONS|PORT|NEXT_.*|__NEXT_.*|TURBOPACK.*|npm_.*|INIT_CWD)$/
 
-export function billingOverride(): string | null {
-  return BILLING_VARS.find((name) => process.env[name]) ?? null
+type BillingSettings = { env?: Record<string, string | undefined>; apiKeyHelper?: string }
+
+// The first setting that would bill the API instead of the user's plan.
+export function billingIn(settings: BillingSettings): string | null {
+  const name = BILLING_VARS.find((v) => settings.env?.[v])
+  if (name) return name
+  return settings.apiKeyHelper ? 'apiKeyHelper' : null
+}
+
+// Claude Code also takes env and apiKeyHelper from its settings files, which
+// sdkEnv() cannot strip, so those are checked for the folder a session runs in.
+export async function billingOverride(cwd: string = os.homedir()): Promise<string | null> {
+  const fromServer = billingIn({ env: process.env })
+  if (fromServer) return fromServer
+  try {
+    const { effective } = await resolveSettings({ cwd, settingSources: ['user', 'project', 'local'] })
+    return billingIn(effective)
+  } catch {
+    // Unreadable settings: the CLI reports those itself when the session starts.
+    return null
+  }
 }
 
 // The SDK replaces the CLI's environment with this, so it is the user's

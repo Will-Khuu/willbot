@@ -64,3 +64,40 @@ test('closing is terminal and drops delegations', () => {
   assert.equal(reduce(s, { type: 'pushed' }), s)
   assert.equal(reduce(s, { type: 'opened' }), s)
 })
+
+test('an idle report that arrives after a push is stale and ignored', () => {
+  let s = run({ type: 'opened' }, { type: 'cli_state', state: 'idle' }, { type: 'pushed' })
+  assert.equal(s.phase, 'running')
+  s = reduce(s, { type: 'cli_state', state: 'idle' })
+  assert.equal(s.phase, 'running')
+  assert.ok(!isQuiet(s))
+  s = reduce(s, { type: 'cli_state', state: 'running' })
+  assert.equal(reduce(s, { type: 'cli_state', state: 'idle' }).phase, 'idle')
+})
+
+test('a result acknowledges pushes, so the idle after it counts', () => {
+  let s = run({ type: 'opened' }, { type: 'pushed' }, { type: 'pushed' })
+  assert.equal(s.unacknowledged, 2)
+  s = reduce(s, { type: 'result' })
+  assert.equal(s.unacknowledged, 0)
+  assert.equal(reduce(s, { type: 'cli_state', state: 'idle' }).phase, 'idle')
+})
+
+test('a push before the session opens is still outstanding once it does', () => {
+  const s = run({ type: 'pushed' }, { type: 'opened' }, { type: 'cli_state', state: 'idle' })
+  assert.equal(s.phase, 'running')
+})
+
+test('interrupted is set only while a turn runs', () => {
+  assert.equal(run({ type: 'interrupted' }).interrupted, false)
+  const idle = run({ type: 'opened' }, { type: 'cli_state', state: 'idle' })
+  assert.equal(reduce(idle, { type: 'interrupted' }).interrupted, false)
+  assert.equal(run({ type: 'opened' }, { type: 'interrupted' }).interrupted, true)
+  assert.equal(run({ type: 'pushed' }, { type: 'interrupted' }).interrupted, true)
+})
+
+test('a push or a result clears interrupted', () => {
+  const stopped = run({ type: 'opened' }, { type: 'interrupted' })
+  assert.equal(reduce(stopped, { type: 'pushed' }).interrupted, false)
+  assert.equal(reduce(stopped, { type: 'result' }).interrupted, false)
+})

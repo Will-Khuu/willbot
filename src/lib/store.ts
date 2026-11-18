@@ -64,10 +64,11 @@ function newBot(seed: Seed, createdAt: string): Bot {
   }
 }
 
+// Chats and memory hold what the user told their employees: owner-only.
 function writeAtomic(file: string, contents: string): void {
-  fs.mkdirSync(path.dirname(file), { recursive: true })
+  fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 })
   const tmp = `${file}.${process.pid}.${randomUUID()}.tmp`
-  fs.writeFileSync(tmp, contents)
+  fs.writeFileSync(tmp, contents, { mode: 0o600 })
   fs.renameSync(tmp, file)
 }
 
@@ -204,7 +205,7 @@ export function appendMemory(id: BotId, note: string): MemoryEntry {
 
 // The default folder is created on first use; a folder the user chose must already exist.
 export function ensureFolder(bot: Bot): string {
-  if (bot.folder === defaultFolder(bot.id)) fs.mkdirSync(bot.folder, { recursive: true })
+  if (bot.folder === defaultFolder(bot.id)) fs.mkdirSync(bot.folder, { recursive: true, mode: 0o700 })
   return fs.realpathSync(bot.folder)
 }
 

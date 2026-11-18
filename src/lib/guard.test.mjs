@@ -3,9 +3,9 @@ import { test } from 'node:test'
 import { guardToolCall, HIRE, REMEMBER } from './guard.ts'
 
 const employees = {
-  chief: { name: 'Chief of Staff', paused: false },
-  research: { name: 'Research Bot', paused: false },
-  builder: { name: 'Builder Bot', paused: true },
+  chief: { name: 'Chief of Staff', paused: false, hire: true },
+  research: { name: 'Research Bot', paused: false, hire: false },
+  builder: { name: 'Builder Bot', paused: true, hire: false },
 }
 const lookup = (id) => employees[id] ?? null
 const team = new Set(['research', 'builder', 'gone'])
@@ -46,14 +46,22 @@ test('delegation to a non-employee subagent is left to Claude Code', () => {
   assert.equal(guardToolCall(call({ toolName: 'Agent', input: { subagent_type: 'general-purpose' } }), lookup), null)
 })
 
-test('remember is only for the session owner', () => {
+test('remember is only for the session owner, never a subagent', () => {
   assert.equal(guardToolCall(call({ toolName: REMEMBER }), lookup), null)
-  assert.equal(guardToolCall(call({ toolName: REMEMBER, agentId: 'a1', agentType: 'Explore' }), lookup), null)
-  assert.match(guardToolCall(call({ toolName: REMEMBER, agentId: 'a1', agentType: 'research' }), lookup), /Only the employee/)
+  assert.match(guardToolCall(call({ toolName: REMEMBER, agentId: 'a1', agentType: 'Explore' }), lookup), /not a subagent/)
+  assert.match(guardToolCall(call({ toolName: REMEMBER, agentId: 'a1', agentType: 'research' }), lookup), /not a subagent/)
 })
 
-test("only the session owner may hire, not the Chief's teammates", () => {
+test('only the session owner may hire, never a subagent', () => {
   assert.equal(guardToolCall(call({ toolName: HIRE }), lookup), null)
-  assert.equal(guardToolCall(call({ toolName: HIRE, agentId: 'a1', agentType: 'general-purpose' }), lookup), null)
-  assert.match(guardToolCall(call({ toolName: HIRE, agentId: 'a1', agentType: 'research' }), lookup), /can hire/)
+  assert.match(guardToolCall(call({ toolName: HIRE, agentId: 'a1', agentType: 'general-purpose' }), lookup), /not a subagent/)
+  assert.match(guardToolCall(call({ toolName: HIRE, agentId: 'a1', agentType: 'research' }), lookup), /not a subagent/)
+})
+
+test('hire reads the switch on every call', () => {
+  const live = { ...employees, chief: { ...employees.chief } }
+  const liveLookup = (id) => live[id] ?? null
+  assert.equal(guardToolCall(call({ toolName: HIRE }), liveLookup), null)
+  live.chief.hire = false
+  assert.match(guardToolCall(call({ toolName: HIRE }), liveLookup), /turned off/)
 })
