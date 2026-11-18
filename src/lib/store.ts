@@ -1,6 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
+import { lastLine, lastReplyAt, type LastLine } from './chatlog'
 import { parseMemory, serializeMemory, oneLine, today } from './memory'
 import { RoutinesFileSchema, type Routine } from './routines'
 import {
@@ -20,6 +21,8 @@ const USAGE_FILE = path.join(DATA_DIR, 'usage.json')
 const ROUTINES_FILE = path.join(DATA_DIR, 'routines.json')
 const BOT_ID = /^[a-z0-9-]{1,40}$/
 export const MAX_BOTS = 12
+
+type ChatSummary = { last: LastLine | null; lastReplyAt: string | null }
 
 type Seed = Pick<Bot, 'id' | 'name' | 'job' | 'builtin'>
 
@@ -148,6 +151,19 @@ export function readChat(id: BotId): Chat {
   const raw = readText(chatFile(id))
   if (raw === null) return { botId: id, sessionId: null, items: [] }
   return ChatSchema.parse(JSON.parse(raw))
+}
+
+const summaries = new Map<BotId, { mtimeMs: number; summary: ChatSummary }>()
+
+// The roster polls every few seconds, so parse a chat file only when it changed.
+export function chatSummary(id: BotId): ChatSummary {
+  const mtimeMs = fs.statSync(chatFile(id), { throwIfNoEntry: false })?.mtimeMs ?? 0
+  const hit = summaries.get(id)
+  if (hit && hit.mtimeMs === mtimeMs) return hit.summary
+  const { items } = readChat(id)
+  const summary = { last: lastLine(items), lastReplyAt: lastReplyAt(items) }
+  summaries.set(id, { mtimeMs, summary })
+  return summary
 }
 
 function writeChat(chat: Chat): void {

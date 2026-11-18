@@ -1,33 +1,53 @@
 'use client'
 
 import { useState, type FormEvent } from 'react'
+import { listTime } from '@/lib/chatlog'
 import type { BotView } from '@/lib/types'
 import type { Usage } from '@/lib/usage'
-import { DOT, initialsOf, tintOf } from './look'
+import { Avatar } from './Avatar'
+import { Icon } from './icons'
 import { UsageMeter } from './UsageMeter'
 
 type Props = {
   bots: BotView[]
-  selectedId: string
+  selectedId: string | null
+  pluginsOpen: boolean
   usage: Usage | null
   now: number
+  user: string | null
+  isUnread: (bot: BotView) => boolean
   onSelect: (id: string) => void
   onCreate: (name: string, job: string) => Promise<void>
+  onPlugins: () => void
 }
 
-export function Roster({ bots, selectedId, usage, now, onSelect, onCreate }: Props) {
+function matches(b: BotView, q: string): boolean {
+  return [b.name, b.job, b.last?.text ?? ''].some((s) => s.toLowerCase().includes(q))
+}
+
+function preview(b: BotView): { text: string; tone: string } {
+  if (b.status !== 'idle') return { text: b.status === 'working' ? `${b.statusLine}…` : b.statusLine, tone: b.status }
+  if (!b.last) return { text: b.job, tone: 'empty' }
+  return { text: b.last.who === 'user' ? `You: ${b.last.text}` : b.last.text, tone: 'idle' }
+}
+
+export function Roster(props: Props) {
+  const { bots, selectedId, usage, now, isUnread } = props
   const [creating, setCreating] = useState(false)
   const [name, setName] = useState('')
   const [job, setJob] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
+  const [query, setQuery] = useState('')
+  const q = query.trim().toLowerCase()
+  const shown = q ? bots.filter((b) => matches(b, q)) : bots
 
   const submit = async (e: FormEvent) => {
     e.preventDefault()
     setSaving(true)
     setError(null)
     try {
-      await onCreate(name.trim(), job.trim())
+      await props.onCreate(name.trim(), job.trim())
       setName('')
       setJob('')
       setCreating(false)
@@ -39,16 +59,16 @@ export function Roster({ bots, selectedId, usage, now, onSelect, onCreate }: Pro
   }
 
   return (
-    <nav className="roster" aria-label="Bots">
-      <div className="rosterHead">
-        <h1 className="rosterTitle">Bots</h1>
+    <nav className="sidebar" aria-label="Employees">
+      <div className="sidebarHead">
         <button
           className="iconButton"
-          aria-label={creating ? 'Cancel creating a bot' : 'Create a new bot'}
+          aria-label={creating ? 'Cancel new employee' : 'New employee'}
+          data-tip={creating ? 'Cancel' : 'New employee'}
           aria-expanded={creating}
           onClick={() => setCreating((c) => !c)}
         >
-          {creating ? '×' : '+'}
+          <Icon name={creating ? 'close' : 'plus'} />
         </button>
       </div>
 
@@ -77,39 +97,83 @@ export function Roster({ bots, selectedId, usage, now, onSelect, onCreate }: Pro
             maxLength={500}
             rows={3}
             onChange={(e) => setJob(e.target.value)}
-            placeholder="What should this bot do?"
+            placeholder="What should this employee do?"
             required
           />
           {error && <p className="formError">{error}</p>}
           <button className="primaryButton" type="submit" disabled={saving || !name.trim() || !job.trim()}>
-            {saving ? 'Creating…' : 'Create bot'}
+            {saving ? 'Hiring…' : 'Hire employee'}
           </button>
         </form>
       )}
 
-      <div className="rosterList">
-        <div className="sectionLabel rosterLabel">Roster</div>
-        {bots.map((b) => (
-          <button
-            key={b.id}
-            className={`rosterRow${b.id === selectedId ? ' selected' : ''}`}
-            aria-label={`${b.name}, ${b.statusLine}`}
-            aria-current={b.id === selectedId ? 'page' : undefined}
-            onClick={() => onSelect(b.id)}
-          >
-            <span className="avatar" style={{ background: tintOf(b.id) }} aria-hidden="true">
-              {initialsOf(b.name)}
-            </span>
-            <span className="rosterText">
-              <span className="rosterName">{b.name}</span>
-              <span className="rosterStatus">{b.statusLine}</span>
-            </span>
-            <span className="dot" style={{ background: DOT[b.status] }} aria-hidden="true" />
-          </button>
-        ))}
+      <div className="searchBox">
+        <Icon name="search" size={16} />
+        <label htmlFor="employee-search" className="visuallyHidden">
+          Search employees
+        </label>
+        <input
+          id="employee-search"
+          type="search"
+          placeholder="Search"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          autoComplete="off"
+        />
       </div>
 
-      <UsageMeter usage={usage} now={now} />
+      <ul className="employeeList">
+        {shown.map((b) => {
+          const line = preview(b)
+          const unread = isUnread(b)
+          const current = b.id === selectedId && !props.pluginsOpen
+          return (
+            <li key={b.id}>
+              <button
+                className={`employeeRow${current ? ' selected' : ''}`}
+                aria-current={current ? 'page' : undefined}
+                aria-label={[b.name, b.status === 'idle' ? null : b.statusLine, unread ? 'new messages' : null].filter(Boolean).join(', ')}
+                title={b.name}
+                onClick={() => props.onSelect(b.id)}
+              >
+                <Avatar id={b.id} name={b.name} status={b.status} />
+                <span className="employeeText">
+                  <span className="employeeTop">
+                    <span className="employeeName">{b.name}</span>
+                    {b.last && <span className="employeeTime">{listTime(b.last.at, new Date(now))}</span>}
+                  </span>
+                  <span className="employeeBottom">
+                    <span className={`employeePreview ${line.tone}`}>{line.text}</span>
+                    {unread && <span className="unreadDot" />}
+                  </span>
+                </span>
+              </button>
+            </li>
+          )
+        })}
+        {shown.length === 0 && <li className="mutedText searchEmpty">No employee matches “{query.trim()}”.</li>}
+      </ul>
+
+      <div className="sidebarFoot">
+        <button
+          className={`footRow${props.pluginsOpen ? ' selected' : ''}`}
+          aria-current={props.pluginsOpen ? 'page' : undefined}
+          title="Plugins"
+          onClick={props.onPlugins}
+        >
+          <span className="footIcon">
+            <Icon name="plug" size={18} />
+          </span>
+          <span className="footLabel">Plugins</span>
+        </button>
+        <UsageMeter usage={usage} now={now} />
+        <div className="footRow meRow" title={props.user ?? 'You'}>
+          <span className="footIcon meAvatar">
+            <Icon name="person" size={16} />
+          </span>
+          <span className="footLabel">{props.user ?? 'You'}</span>
+        </div>
+      </div>
     </nav>
   )
 }

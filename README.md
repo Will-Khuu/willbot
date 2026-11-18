@@ -36,7 +36,7 @@ The first start creates four employees.
 
 ## Per-employee settings
 
-Set these in the details panel.
+Set these in the right panel. The screen button in the chat header shows or hides it, and the details button opens it at the job.
 
 - **Working folder.** The session's working directory. Type an absolute path, or use **Choose folder…**. The default is `data/workspaces/<id>`. Claude Code keeps conversations per folder, so changing it closes the session and starts a new conversation in the new folder.
 - **Also has access to.** Extra folders, described under Folders and context.
@@ -54,8 +54,8 @@ Give an employee folders and files the way you do in a Claude Code desktop sessi
 
 - **Folder picker.** **Choose folder…** and **Add folder…** open the macOS folder dialog, starting in the working folder. Cancel leaves everything as it was.
 - **Extra folders.** "Also has access to" lists folders the session can use beside its working folder, as Claude Code's `--add-dir` does. Each must be an absolute path to a folder that exists, up to 20. A change reopens the session like a job edit, and the conversation continues: extra folders do not change the session's project. The Chief also gets every teammate's folders, since teammates run inside its session. A folder deleted later is skipped.
-- **Attachments.** Attach files with the paperclip button, by dropping them on the chat, or by pasting an image. Each shows as a chip above the composer while it uploads; × removes it. Up to 10 files per message, 20 MB each. A file is saved to `<working folder>/.will-bot/attachments/<yyyymmdd-hhmmss>-<name>`, with the name reduced to letters, digits, dots, dashes and underscores. The message tells Claude Code `Attached file: <path>` for each, so it can read any of them. PNG, JPEG, GIF and WebP images also go in as images, which Claude Code scales down as it does for a pasted screenshot.
-- **Sent attachments.** Your message shows images as thumbnails and other files as chips. Thumbnails come only from the employee's current attachments folder, so after a working folder change older ones no longer show.
+- **Attachments.** Attach files with the + button in the composer, by dropping them on the chat, or by pasting an image. Each shows as a file card above the composer while it uploads; × removes it. Up to 10 files per message, 20 MB each. A file is saved to `<working folder>/.will-bot/attachments/<yyyymmdd-hhmmss>-<name>`, with the name reduced to letters, digits, dots, dashes and underscores. The message tells Claude Code `Attached file: <path>` for each, so it can read any of them. PNG, JPEG, GIF and WebP images also go in as images, which Claude Code scales down as it does for a pasted screenshot.
+- **Sent attachments.** Your message shows each file as a card with its type, name and size, and images with a thumbnail. Thumbnails come only from the employee's current attachments folder, so after a working folder change older ones no longer show.
 - **@-mentions.** Type `@` in the composer to list files from the working folder and extra folders that match what follows it. Arrow keys move, Enter or Tab picks, Escape closes. A pick inserts `@<absolute path>`, quoted if it has spaces, and Claude Code reads that file into the message as it does in a terminal session. The search looks at up to 5,000 entries, nearest first, and skips `node_modules`, `.git`, `.next`, `dist`, `build` and dot-folders, except `.will-bot/attachments`. It shows the best 20 matches: a name that starts with the text, then a name that contains it, then a path that contains it, then the letters in order.
 
 ## Live sessions

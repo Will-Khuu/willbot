@@ -42,7 +42,7 @@ async function probe(): Promise<Capabilities> {
     const { plugins } = await session.reloadPlugins()
     return {
       plugins: plugins.filter((p) => !p.source?.endsWith('@builtin')).map((p) => p.name),
-      skills: init.commands.filter((c) => !c.builtin).length,
+      skills: init.commands.filter((c) => !c.builtin).map((c) => c.name).toSorted(),
       connectors: servers.map((s) => ({
         name: s.name.replace(/^claude\.ai /, ''),
         status: s.status,

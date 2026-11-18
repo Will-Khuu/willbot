@@ -2,6 +2,7 @@ import type { FileHit, Upload } from '@/lib/context'
 import type { Answers, BotView, Capabilities, Chat, ChatItem, MemoryEntry, Model } from '@/lib/types'
 import type { Routine, Schedule } from '@/lib/routines'
 import type { Usage } from '@/lib/usage'
+import type { RecentFile } from '@/lib/workspace'
 
 async function call<T>(url: string, init?: RequestInit & { json?: unknown }): Promise<T> {
   const res = await fetch(url, {
@@ -23,7 +24,9 @@ async function errorText(res: Response): Promise<string> {
 }
 
 export const api = {
-  health: () => call<{ apiKeySet: boolean; billingVar: string | null }>('/api/health'),
+  health: () => call<{ apiKeySet: boolean; billingVar: string | null; user: string }>('/api/health'),
+  workspace: (botId: string) =>
+    call<{ name: string; folder: string; files: RecentFile[] }>(`/api/workspace?botId=${encodeURIComponent(botId)}`),
   bots: () => call<BotView[]>('/api/bots'),
   createBot: (name: string, job: string) => call<BotView>('/api/bots', { method: 'POST', json: { name, job } }),
   patchBot: (

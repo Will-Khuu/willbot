@@ -89,6 +89,18 @@ export function describe(schedule: Schedule): string {
   return `${DAY_NAMES[schedule.day]} ${at}`
 }
 
+const PLURAL_DAYS = ['Sundays', 'Mondays', 'Tuesdays', 'Wednesdays', 'Thursdays', 'Fridays', 'Saturdays'] as const
+
+// "Every day at 8:00 AM", "Weekdays at 6:00 PM", "Mondays at 9:30 AM", "Every 2 hours".
+export function scheduleWords(schedule: Schedule): string {
+  if (schedule.kind === 'every') return describe(schedule)
+  const [hour, minute] = clock(schedule.time)
+  const at = `${hour % 12 || 12}:${String(minute).padStart(2, '0')} ${hour < 12 ? 'AM' : 'PM'}`
+  if (schedule.kind === 'daily') return `Every day at ${at}`
+  if (schedule.kind === 'weekdays') return `Weekdays at ${at}`
+  return `${PLURAL_DAYS[schedule.day]} at ${at}`
+}
+
 // 'today', 'tomorrow', or the short weekday within a week, else the date.
 export function dayWord(at: Date, now: Date): string {
   const days = Math.round(

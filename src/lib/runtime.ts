@@ -190,7 +190,12 @@ export function delegatedBy(botId: BotId): BotId | null {
   return null
 }
 
-export function viewBot(bot: Bot, names: Map<BotId, string>, nextRoutine: string | null): BotView {
+export function viewBot(
+  bot: Bot,
+  names: Map<BotId, string>,
+  nextRoutine: string | null,
+  chat: Pick<BotView, 'last' | 'lastReplyAt'>,
+): BotView {
   const waiting = [...rt.decisions.values()].some((d) => d.botId === bot.id || d.ownerId === bot.id)
   const live = rt.sessions.get(bot.id)
   const delegator = delegatedBy(bot.id)
@@ -207,7 +212,7 @@ export function viewBot(bot: Bot, names: Map<BotId, string>, nextRoutine: string
     working: delegator ? `Working for ${names.get(delegator) ?? delegator}` : 'Working',
     idle: nextRoutine ? `Idle · next: ${nextRoutine}` : 'Idle',
   }[status]
-  return { ...bot, status, statusLine, delegatedBy: delegator }
+  return { ...bot, status, statusLine, delegatedBy: delegator, ...chat }
 }
 
 export function currentUsage(): Usage | null {

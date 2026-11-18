@@ -4,7 +4,7 @@ import { test } from 'node:test'
 // Fixed zone with DST; node --test runs each file in its own process.
 process.env.TZ = 'America/New_York'
 
-const { dayWord, describe, due, nextLabel, nextRun, outcomeFor, record, scheduledOutcome, soonest, upcoming, ScheduleSchema } =
+const { dayWord, describe, scheduleWords, due, nextLabel, nextRun, outcomeFor, record, scheduledOutcome, soonest, upcoming, ScheduleSchema } =
   await import('./routines.ts')
 
 const HOUR = 3600_000
@@ -103,6 +103,13 @@ test('invalid input throws, and the schema rejects it', () => {
   assert.equal(ScheduleSchema.safeParse({ kind: 'weekly', day: 7, time: '08:00' }).success, false)
   assert.equal(ScheduleSchema.safeParse({ kind: 'weekly', day: 0, time: '23:59' }).success, true)
   assert.equal(ScheduleSchema.safeParse({ kind: 'daily', time: '00:00' }).success, true)
+})
+
+test('scheduleWords spells the schedule out', () => {
+  assert.equal(scheduleWords({ kind: 'daily', time: '08:00' }), 'Every day at 8:00 AM')
+  assert.equal(scheduleWords({ kind: 'weekdays', time: '18:00' }), 'Weekdays at 6:00 PM')
+  assert.equal(scheduleWords({ kind: 'weekly', day: 1, time: '00:30' }), 'Mondays at 12:30 AM')
+  assert.equal(scheduleWords({ kind: 'every', hours: 2 }), 'Every 2 hours')
 })
 
 test('describe uses the mockup wording', () => {

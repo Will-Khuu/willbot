@@ -46,10 +46,9 @@ export function findAttachments(bot: Bot, ids: readonly string[]): Attachment[] 
   const found: Attachment[] = []
   for (const id of ids) {
     const file = path.join(dir, id)
-    if (!isAttachmentId(id) || fs.statSync(file, { throwIfNoEntry: false })?.isFile() !== true) {
-      return `The attachment ${attachmentName(id)} is gone. Attach it again.`
-    }
-    found.push({ name: attachmentName(id), path: file, mime: mimeOf(id) })
+    const stat = isAttachmentId(id) ? fs.statSync(file, { throwIfNoEntry: false }) : undefined
+    if (stat?.isFile() !== true) return `The attachment ${attachmentName(id)} is gone. Attach it again.`
+    found.push({ name: attachmentName(id), path: file, mime: mimeOf(id), size: stat.size })
   }
   return found
 }
@@ -109,4 +108,57 @@ export function searchFiles(bot: Bot, query: string): FileHit[] {
     }
   }
   return rankFiles(files, query)
+}
+
+// The newest PNG the Playwright MCP server wrote for this employee.
+export function latestScreenshot(bot: Bot): string | null {
+  try {
+    const dir = fs.realpathSync(path.join(ensureFolder(bot), '.playwright'))
+    let best: { file: string; at: number } | null = null
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (!entry.isFile() || !entry.name.toLowerCase().endsWith('.png')) continue
+      const file = fs.realpathSync(path.join(dir, entry.name))
+      if (!isInside(dir, file)) continue
+      const at = fs.statSync(file).mtimeMs
+      if (!best || at > best.at) best = { file, at }
+    }
+    return best?.file ?? null
+  } catch {
+    return null
+  }
+}
+
+export type RecentFile = { rel: string; modifiedAt: string }
+
+// The most recently changed files in the working folder, skipping
+// node_modules and every dot-folder (.git included).
+export function recentFiles(bot: Bot, count: number): { folder: string; files: RecentFile[] } {
+  const root = ensureFolder(bot)
+  const found: { rel: string; at: number }[] = []
+  const queue = ['']
+  let walked = 0
+  while (queue.length && walked < MAX_WALK) {
+    const rel = queue.shift()!
+    let entries: fs.Dirent[]
+    try {
+      entries = fs.readdirSync(path.join(root, rel), { withFileTypes: true })
+    } catch {
+      continue
+    }
+    for (const entry of entries) {
+      if (++walked > MAX_WALK || entry.name.startsWith('.')) continue
+      const childRel = rel ? `${rel}/${entry.name}` : entry.name
+      if (entry.isDirectory()) {
+        if (entry.name !== 'node_modules') queue.push(childRel)
+      } else if (entry.isFile()) {
+        const at = fs.statSync(path.join(root, childRel), { throwIfNoEntry: false })?.mtimeMs
+        if (at !== undefined) found.push({ rel: childRel, at })
+      }
+    }
+  }
+  const files = found
+    .toSorted((a, b) => b.at - a.at)
+    .slice(0, count)
+    .map((f) => ({ rel: f.rel, modifiedAt: new Date(f.at).toISOString() }))
+  return { folder: root, files }
 }

@@ -5,12 +5,30 @@ import { insertMention, MAX_ATTACHMENT_BYTES, MAX_ATTACHMENTS, mentionAt, type F
 import { MODEL_LABELS } from '@/lib/router'
 import { MODELS, type BotView, type Model } from '@/lib/types'
 import { api } from './api'
+import { FileCard } from './FileCard'
+import { Icon } from './icons'
 
 type Pending = { key: string; name: string } & (
   | { state: 'uploading' }
   | { state: 'ready'; upload: Upload }
   | { state: 'failed'; error: string }
 )
+
+type Recognition = {
+  continuous: boolean
+  interimResults: boolean
+  lang: string
+  start: () => void
+  stop: () => void
+  onresult: ((e: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void) | null
+  onend: (() => void) | null
+  onerror: ((e: { error: string }) => void) | null
+}
+
+function speechRecognition(): (new () => Recognition) | null {
+  const w = window as unknown as Record<string, (new () => Recognition) | undefined>
+  return w.SpeechRecognition ?? w.webkitSpeechRecognition ?? null
+}
 
 type Mention = { start: number; caret: number; hits: FileHit[]; active: number }
 
@@ -35,12 +53,46 @@ export function Composer({ bot, closed, limit, dropped, onSend }: Props) {
   const filePicker = useRef<HTMLInputElement>(null)
   const search = useRef<AbortController | null>(null)
   const listId = useId()
+  const [canDictate, setCanDictate] = useState(false)
+  const recognition = useRef<Recognition | null>(null)
+  const [recording, setRecording] = useState(false)
+
+  useEffect(() => setCanDictate(speechRecognition() !== null), [])
+
+  useEffect(() => () => recognition.current?.stop(), [])
 
   useEffect(() => {
     setPending([])
     setNote(null)
     setMention(null)
+    recognition.current?.stop()
   }, [bot.id])
+
+  const dictate = () => {
+    if (recording) return recognition.current?.stop()
+    const Ctor = speechRecognition()
+    if (!Ctor) return
+    const rec = new Ctor()
+    const before = draft.trimEnd()
+    rec.continuous = true
+    rec.interimResults = true
+    rec.lang = navigator.language
+    rec.onresult = (e) => {
+      const heard = Array.from(e.results, (r) => r[0]?.transcript ?? '').join('')
+      setDraft(before && heard ? `${before} ${heard.trimStart()}` : before || heard)
+    }
+    rec.onerror = (e) => {
+      if (e.error === 'not-allowed' || e.error === 'service-not-allowed') setNote('Allow microphone access to dictate.')
+    }
+    rec.onend = () => {
+      setRecording(false)
+      recognition.current = null
+      input.current?.focus()
+    }
+    recognition.current = rec
+    setRecording(true)
+    rec.start()
+  }
 
   const attach = (files: File[]) => {
     if (closed || files.length === 0) return
@@ -117,11 +169,13 @@ export function Composer({ bot, closed, limit, dropped, onSend }: Props) {
 
   const uploading = pending.some((p) => p.state === 'uploading')
   const ready = pending.flatMap((p) => (p.state === 'ready' ? [p.upload.id] : []))
+  const hasContent = draft.trim() !== '' || pending.length > 0
   const canSend = (draft.trim() !== '' || ready.length > 0) && !uploading && !closed && !limit?.blocks
 
   const submit = (e: FormEvent) => {
     e.preventDefault()
     if (!canSend) return
+    recognition.current?.stop()
     void onSend(draft.trim(), ready, pick)
     setDraft('')
     setPick(null)
@@ -134,7 +188,7 @@ export function Composer({ bot, closed, limit, dropped, onSend }: Props) {
     ? `Hand back to message ${bot.name}`
     : bot.delegatedBy
       ? `${bot.name} is ${bot.statusLine.toLowerCase()}…`
-      : `Message ${bot.name}, @ to mention a file`
+      : `Message ${bot.name}`
 
   const optionId = (i: number) => `${listId}-${i}`
 
@@ -145,18 +199,14 @@ export function Composer({ bot, closed, limit, dropped, onSend }: Props) {
           {pending.length > 0 && (
             <ul className="pendingList" aria-label="Attachments">
               {pending.map((p) => (
-                <li key={p.key} className={`pendingChip${p.state === 'failed' ? ' failed' : ''}`}>
-                  <span className="pendingName">{p.name}</span>
-                  {p.state === 'uploading' && <span className="pendingState">Uploading…</span>}
-                  {p.state === 'failed' && <span className="pendingState">{p.error}</span>}
-                  <button
-                    type="button"
-                    className="pendingRemove"
-                    aria-label={`Remove ${p.name}`}
-                    onClick={() => setPending((cur) => cur.filter((x) => x.key !== p.key))}
-                  >
-                    ×
-                  </button>
+                <li key={p.key}>
+                  <FileCard
+                    name={p.name}
+                    mime={p.state === 'ready' ? p.upload.mime : ''}
+                    size={p.state === 'ready' ? p.upload.size : undefined}
+                    note={p.state === 'uploading' ? { text: 'Uploading…' } : p.state === 'failed' ? { text: p.error, error: true } : undefined}
+                    onRemove={() => setPending((cur) => cur.filter((x) => x.key !== p.key))}
+                  />
                 </li>
               ))}
             </ul>
@@ -168,7 +218,7 @@ export function Composer({ bot, closed, limit, dropped, onSend }: Props) {
           )}
         </div>
       )}
-      <div className="composerRow">
+      <div className={`composerPill${closed ? ' closed' : ''}${recording ? ' recording' : ''}`}>
         <input
           ref={filePicker}
           type="file"
@@ -181,15 +231,13 @@ export function Composer({ bot, closed, limit, dropped, onSend }: Props) {
         />
         <button
           type="button"
-          className="attachButton"
+          className="pillButton attachButton"
           aria-label="Attach files"
-          title="Attach files"
+          data-tip="Attach files"
           disabled={closed}
           onClick={() => filePicker.current?.click()}
         >
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
-          </svg>
+          <Icon name="plus" />
         </button>
         <div className="composerField">
           {mention && (
@@ -216,7 +264,7 @@ export function Composer({ bot, closed, limit, dropped, onSend }: Props) {
             </ul>
           )}
           <label htmlFor="composer" className="visuallyHidden">
-            Message {bot.name}
+            Message {bot.name}. Type @ to mention a file.
           </label>
           <input
             ref={input}
@@ -240,36 +288,53 @@ export function Composer({ bot, closed, limit, dropped, onSend }: Props) {
               e.preventDefault()
               attach(images)
             }}
-            placeholder={placeholder}
+            placeholder={recording ? 'Listening…' : placeholder}
             disabled={closed}
             autoComplete="off"
           />
         </div>
         <label htmlFor="composer-model" className="visuallyHidden">
-          Model
+          Model for this message
         </label>
-        <select
-          id="composer-model"
-          className="composerModel"
-          value={pick ?? ''}
-          disabled={closed}
-          onChange={(e) => setPick(e.target.value === '' ? null : (e.target.value as NonNullable<Model>))}
-        >
-          <option value="">Auto</option>
-          {MODELS.map((m) => (
-            <option key={m} value={m}>
-              {MODEL_LABELS[m]}
-            </option>
-          ))}
-        </select>
-        <button
-          className="sendButton"
-          type="submit"
-          disabled={!canSend}
-          title={limit?.blocks ? limit.text : uploading ? 'Waiting for uploads' : undefined}
-        >
-          Send
-        </button>
+        <span className="modelPick">
+          <select
+            id="composer-model"
+            value={pick ?? ''}
+            disabled={closed}
+            onChange={(e) => setPick(e.target.value === '' ? null : (e.target.value as NonNullable<Model>))}
+          >
+            <option value="">Auto</option>
+            {MODELS.map((m) => (
+              <option key={m} value={m}>
+                {MODEL_LABELS[m]}
+              </option>
+            ))}
+          </select>
+          <Icon name="chevronDown" size={12} />
+        </span>
+        {recording || (canDictate && !hasContent) ? (
+          <button
+            type="button"
+            className={`pillButton roundButton micButton${recording ? ' on' : ''}`}
+            aria-label={recording ? 'Stop dictation' : 'Dictate'}
+            aria-pressed={recording}
+            data-tip={recording ? 'Stop dictation' : 'Dictate'}
+            disabled={closed}
+            onClick={dictate}
+          >
+            <Icon name="mic" size={18} />
+          </button>
+        ) : (
+          <button
+            className="pillButton roundButton sendButton"
+            type="submit"
+            aria-label="Send"
+            data-tip={limit?.blocks ? limit.text : uploading ? 'Waiting for uploads' : 'Send'}
+            disabled={!canSend}
+          >
+            <Icon name="arrowUp" size={18} strokeWidth={2.25} />
+          </button>
+        )}
       </div>
     </form>
   )

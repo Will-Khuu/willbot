@@ -70,29 +70,26 @@ export function UsageMeter({ usage, now }: { usage: Usage | null; now: number })
 
   return (
     <>
-      <section className="usage" aria-label="Plan usage">
-        <div className="sectionLabel">Plan usage</div>
+      <section className="usage" aria-label="Plan usage" title={summary}>
         {rows.length === 0 ? (
-          <p className="usageNote">Usage shows after the first message.</p>
+          <p className="usageNote">Plan usage shows after the first message.</p>
         ) : (
           <>
             {rows.map((r) => (
               <div key={r.label} className={`usageRow ${r.level}`}>
-                <div className="usageTop">
-                  <span className="usageName">{r.label}</span>
-                  <span className="usagePercent">{r.percent === null ? '–' : `${r.percent}%`}</span>
-                </div>
-                <div className="usageBar" aria-hidden="true">
-                  <div className="usageFill" style={{ width: `${r.level === 'reached' ? 100 : (r.percent ?? 0)}%` }} />
-                </div>
-                <div className="usageNote">
-                  {LEVEL_LABELS[r.level] && <span className="usageLevel">{LEVEL_LABELS[r.level]}</span>}
-                  {LEVEL_LABELS[r.level] && r.reset && ' · '}
-                  {r.reset}
-                </div>
+                <span className="usageName">{r.label}</span>
+                <span className="usageBar" aria-hidden="true">
+                  <span className="usageFill" style={{ width: `${r.level === 'reached' ? 100 : (r.percent ?? 0)}%` }} />
+                </span>
+                <span className="usagePercent">{r.percent === null ? '–' : `${r.percent}%`}</span>
               </div>
             ))}
-            <p className="usageNote">{updated}</p>
+            <p className="usageNote">
+              {rows
+                .flatMap((r) => (LEVEL_LABELS[r.level] ? [`${r.label}: ${LEVEL_LABELS[r.level]}${r.reset ? `, ${r.reset}` : ''}`] : []))
+                .concat(updated ?? [])
+                .join(' · ')}
+            </p>
           </>
         )}
       </section>

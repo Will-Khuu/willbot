@@ -31,7 +31,8 @@ export function isImageMime(mime: string): mime is ImageMime {
   return (IMAGE_MIMES as readonly string[]).includes(mime)
 }
 
-export const AttachmentSchema = z.object({ name: z.string(), path: z.string(), mime: z.string() })
+// size is absent on attachments sent before it was recorded.
+export const AttachmentSchema = z.object({ name: z.string(), path: z.string(), mime: z.string(), size: z.number().optional() })
 export type Attachment = z.infer<typeof AttachmentSchema>
 // What an upload returns. The id is the file's name in the attachments folder.
 export type Upload = Attachment & { id: string; size: number }

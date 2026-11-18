@@ -1,13 +1,23 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { Answers, BotView, ChatItem, MemoryEntry, Model, StreamEvent } from '@/lib/types'
+import { chatMarkdown } from '@/lib/chatlog'
+import type { Answers, BotView, Capabilities, ChatItem, MemoryEntry, Model, StreamEvent } from '@/lib/types'
 import type { Usage } from '@/lib/usage'
 import { api, localError } from './api'
 import { Roster } from './Roster'
 import { ChatPane } from './ChatPane'
-import { Details } from './Details'
+import { Details, type PanelTarget } from './Details'
+import { Plugins } from './Plugins'
+import { useUnread } from './seen'
 import { limitNotice } from './UsageMeter'
+
+// Below this width the right panel overlays the chat instead of taking a column.
+const WIDE = '(min-width: 1200px)'
+
+function isWide(): boolean {
+  return window.matchMedia(WIDE).matches
+}
 
 function upsertMissing(items: ChatItem[], item: ChatItem): ChatItem[] {
   return items.some((x) => x.id === item.id) ? items : [...items, item]
@@ -27,7 +37,11 @@ export function App() {
   const [items, setItems] = useState<ChatItem[] | null>(null)
   const [memory, setMemory] = useState<MemoryEntry[]>([])
   const [billingVar, setBillingVar] = useState<string | null>(null)
-  const [detailsOpen, setDetailsOpen] = useState(false)
+  const [panelOpen, setPanelOpen] = useState(false)
+  const [panelFocus, setPanelFocus] = useState<{ target: PanelTarget; n: number }>({ target: 'top', n: 0 })
+  const [pluginsOpen, setPluginsOpen] = useState(false)
+  const [caps, setCaps] = useState<Capabilities | null>(null)
+  const [user, setUser] = useState<string | null>(null)
   const [usage, setUsage] = useState<Usage | null>(null)
   const [now, setNow] = useState(() => Date.now())
   const selectedRef = useRef(selectedId)
@@ -36,6 +50,8 @@ export function App() {
   const bot = bots.find((b) => b.id === selectedId) ?? null
   const busy = bots.some((b) => b.status !== 'idle')
   const limit = limitNotice(usage, now)
+  const isUnread = useUnread(bots, pluginsOpen ? null : selectedId)
+  const activity = `${items?.length ?? 0}:${items?.at(-1)?.id ?? ''}:${bot?.status ?? ''}`
 
   const refreshBots = useCallback(async () => {
     try {
@@ -67,7 +83,15 @@ export function App() {
 
   useEffect(() => {
     void refreshBots()
-    api.health().then((h) => setBillingVar(h.apiKeySet ? h.billingVar : null), () => {})
+    api.health().then(
+      (h) => {
+        setBillingVar(h.apiKeySet ? h.billingVar : null)
+        setUser(h.user)
+      },
+      () => {},
+    )
+    api.capabilities().then(setCaps, (e: Error) => setCaps({ error: e.message }))
+    setPanelOpen(isWide())
   }, [refreshBots])
 
   useEffect(() => {
@@ -157,6 +181,13 @@ export function App() {
     await refreshBots()
   }
 
+  const openPanel = (target: PanelTarget) => {
+    setPanelOpen(true)
+    setPanelFocus((f) => ({ target, n: f.n + 1 }))
+  }
+
+  const nameOf = (id: string) => bots.find((b) => b.id === id)?.name ?? id
+
   const saveMemory = async (entries: MemoryEntry[]) => {
     setMemory(entries)
     try {
@@ -175,23 +206,31 @@ export function App() {
           not your plan. Unset {billingVar} and restart the server to use your Claude plan. Bots will not run until then.
         </div>
       )}
-      <div className="columns">
+      <div className={`columns${panelOpen && bot && !pluginsOpen ? ' withPanel' : ''}`}>
         <Roster
           bots={bots}
           selectedId={selectedId}
+          pluginsOpen={pluginsOpen}
           usage={usage}
           now={now}
+          user={user}
+          isUnread={isUnread}
           onSelect={(id) => {
             setSelectedId(id)
-            setDetailsOpen(false)
+            setPluginsOpen(false)
+            if (!isWide()) setPanelOpen(false)
           }}
           onCreate={async (name, job) => {
             const created = await api.createBot(name, job)
             await refreshBots()
             setSelectedId(created.id)
+            setPluginsOpen(false)
           }}
+          onPlugins={() => setPluginsOpen(true)}
         />
-        {bot ? (
+        {pluginsOpen ? (
+          <Plugins caps={caps} onBack={() => setPluginsOpen(false)} />
+        ) : bot ? (
           <ChatPane
             bot={bot}
             bots={bots}
@@ -199,24 +238,31 @@ export function App() {
             loading={items === null}
             working={bot.status === 'working' || bot.status === 'needs_approval'}
             blocked={billingVar !== null}
+            now={now}
             limit={limit}
             onSend={send}
             onStop={run(() => api.stop(bot.id))}
             onTakeOver={run(() => api.patchBot(bot.id, { paused: !bot.paused }))}
             onDecide={decide}
             onAnswer={answer}
-            onToggleDetails={() => setDetailsOpen((o) => !o)}
-            detailsOpen={detailsOpen}
+            panelOpen={panelOpen}
+            onTogglePanel={() => (panelOpen ? setPanelOpen(false) : openPanel('top'))}
+            onDetails={() => openPanel('job')}
           />
         ) : (
           <main className="chat" aria-busy="true" />
         )}
-        {bot && (
+        {bot && !pluginsOpen && (
           <Details
             bot={bot}
             memory={memory}
-            open={detailsOpen}
-            onClose={() => setDetailsOpen(false)}
+            caps={caps}
+            open={panelOpen}
+            focus={panelFocus}
+            activity={activity}
+            now={now}
+            shareText={() => chatMarkdown(bot.name, items ?? [], nameOf)}
+            onClose={() => setPanelOpen(false)}
             onSaveJob={async (job) => {
               await api.patchBot(bot.id, { job })
               await refreshBots()

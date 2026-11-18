@@ -1,32 +1,30 @@
 'use client'
 
 import { useEffect, useRef, useState, type DragEvent, type FormEvent } from 'react'
+import { dividerTime, needsDivider } from '@/lib/chatlog'
 import { isImageMime, type Attachment } from '@/lib/context'
 import { routeLine } from '@/lib/router'
 import { taskCounts, type TaskStatus } from '@/lib/tasks'
-import {
-  type ActivityItem,
-  type Answers,
-  type ApprovalItem,
-  type BotView,
-  type ChatItem,
-  type Model,
-  type QuestionItem,
-  type TasksItem,
-} from '@/lib/types'
+import type { ActivityItem, Answers, ApprovalItem, BotView, ChatItem, Model, QuestionItem, TasksItem } from '@/lib/types'
 import { attachmentUrl } from './api'
+import { Avatar } from './Avatar'
 import { Composer } from './Composer'
-import { initialsOf, timeOf, tintOf } from './look'
+import { FileCard } from './FileCard'
+import { Icon, type IconName } from './icons'
 
 type Row =
   | { kind: 'item'; item: Exclude<ChatItem, { kind: 'activity' | 'tasks' }> }
   | { kind: 'activity'; id: string; botId: string; entries: ActivityItem[] }
+  | { kind: 'divider'; id: string; at: string }
 
 function toRows(items: ChatItem[]): Row[] {
   const rows: Row[] = []
+  let prevAt: string | null = null
   for (const item of items) {
-    const last = rows.at(-1)
     if (item.kind === 'tasks') continue
+    if (needsDivider(prevAt, item.at)) rows.push({ kind: 'divider', id: `divider-${item.id}`, at: item.at })
+    prevAt = item.at
+    const last = rows.at(-1)
     if (item.kind !== 'activity') rows.push({ kind: 'item', item })
     else if (last?.kind === 'activity' && last.botId === item.botId) last.entries.push(item)
     else rows.push({ kind: 'activity', id: item.id, botId: item.botId, entries: [item] })
@@ -44,13 +42,13 @@ function outcomeOf(item: ApprovalItem): string {
 function ActivityLine({ item }: { item: ActivityItem }) {
   const [open, setOpen] = useState(false)
   const { detail } = item
-  if (!detail) return <li>{item.label}</li>
+  if (!detail) return <li className="activityLine">{item.label}</li>
   const panel = `detail-${item.id}`
   return (
     <li>
       <button className="activityButton" aria-expanded={open} aria-controls={panel} onClick={() => setOpen((o) => !o)}>
-        <span aria-hidden="true">{open ? '▾' : '▸'}</span>
-        <span>{item.label}</span>
+        <Icon name={open ? 'chevronDown' : 'chevronRight'} size={14} />
+        <span className="activityLabel">{item.label}</span>
         {detail.isError && <span className="activityError">Error</span>}
       </button>
       {open && (
@@ -68,10 +66,10 @@ function ActivityLine({ item }: { item: ActivityItem }) {
   )
 }
 
-const TASK_MARK: Record<TaskStatus, { mark: string; text: string }> = {
-  completed: { mark: '✓', text: 'Done' },
-  in_progress: { mark: '●', text: 'In progress' },
-  pending: { mark: '○', text: 'Pending' },
+const TASK_MARK: Record<TaskStatus, { icon: IconName | null; text: string }> = {
+  completed: { icon: 'check', text: 'Done' },
+  in_progress: { icon: 'more', text: 'In progress' },
+  pending: { icon: null, text: 'Pending' },
 }
 
 function TaskCard({ item, working }: { item: TasksItem; working: boolean }) {
@@ -79,24 +77,25 @@ function TaskCard({ item, working }: { item: TasksItem; working: boolean }) {
   const { done, total } = taskCounts(item.items)
   if (total === 0 || (done === total && !working)) return null
   return (
-    <section className="taskCard" aria-label="Tasks">
+    <section className="card taskCard" aria-label="Tasks">
       <button className="taskHead" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
         <span>
-          Tasks {done}/{total}
+          Tasks <span className="taskCount">{done}/{total}</span>
         </span>
-        <span aria-hidden="true">{open ? '▾' : '▸'}</span>
+        <Icon name={open ? 'chevronDown' : 'chevronRight'} size={16} />
       </button>
       {open && (
         <ul className="taskList">
-          {item.items.map((t, i) => (
-            <li key={t.taskId ?? i} className={`task ${t.status}`}>
-              <span className="taskMark" aria-hidden="true">
-                {TASK_MARK[t.status].mark}
-              </span>
-              <span className="visuallyHidden">{TASK_MARK[t.status].text}: </span>
-              <span>{t.status === 'in_progress' && t.activeForm ? t.activeForm : t.content}</span>
-            </li>
-          ))}
+          {item.items.map((t, i) => {
+            const mark = TASK_MARK[t.status]
+            return (
+              <li key={t.taskId ?? i} className={`task ${t.status}`}>
+                <span className="taskMark">{mark.icon && <Icon name={mark.icon} size={12} strokeWidth={3} />}</span>
+                <span className="visuallyHidden">{mark.text}: </span>
+                <span>{t.status === 'in_progress' && t.activeForm ? t.activeForm : t.content}</span>
+              </li>
+            )
+          })}
         </ul>
       )}
     </section>
@@ -105,20 +104,15 @@ function TaskCard({ item, working }: { item: TasksItem; working: boolean }) {
 
 function Attachments({ botId, attachments }: { botId: string; attachments: Attachment[] }) {
   return (
-    <ul className="sentAttachments" aria-label="Attachments">
-      {attachments.map((a) =>
-        isImageMime(a.mime) ? (
+    <ul className="sentFiles" aria-label="Attachments">
+      {attachments.map((a) => {
+        const image = isImageMime(a.mime) ? attachmentUrl(botId, a.path) : undefined
+        return (
           <li key={a.path}>
-            <a href={attachmentUrl(botId, a.path)} target="_blank" rel="noreferrer" title={a.path}>
-              <img className="thumb" src={attachmentUrl(botId, a.path)} alt={a.name} loading="lazy" />
-            </a>
+            <FileCard name={a.name} mime={a.mime} size={a.size} thumb={image} href={image} />
           </li>
-        ) : (
-          <li key={a.path} className="chip fileChip" title={a.path}>
-            {a.name}
-          </li>
-        ),
-      )}
+        )
+      })}
     </ul>
   )
 }
@@ -148,8 +142,11 @@ function QuestionCard({ item, who, onAnswer }: { item: QuestionItem; who: string
   }
 
   return (
-    <form className="approvalCard" onSubmit={submit}>
-      <div className="cardLabel approvalLabel">{who} has a question</div>
+    <form className={`card approvalCard${item.state === 'pending' ? ' pending' : ''}`} onSubmit={submit}>
+      <div className="cardHead attention">
+        <Icon name="alert" size={16} strokeWidth={2.5} />
+        <span>{who} has a question</span>
+      </div>
       {item.questions.map((q, qi) => {
         const name = `${item.id}-${qi}`
         const type = q.multiSelect ? 'checkbox' : 'radio'
@@ -191,20 +188,56 @@ function QuestionCard({ item, who, onAnswer }: { item: QuestionItem; who: string
                 />
               </label>
             )}
-            {item.state === 'answered' && item.answers && <div className="approvalOutcome">Answered: {item.answers[q.question]}</div>}
+            {item.state === 'answered' && item.answers && <div className="cardOutcome">Answered: {item.answers[q.question]}</div>}
           </fieldset>
         )
       })}
       {item.state === 'pending' ? (
-        <div className="approvalButtons">
-          <button className="darkButton" type="submit" disabled={!complete}>
+        <div className="cardButtons">
+          <button className="primaryButton" type="submit" disabled={!complete}>
             Send answers
           </button>
         </div>
       ) : (
-        item.state === 'expired' && <div className="approvalOutcome">No answer in time.</div>
+        item.state === 'expired' && <div className="cardOutcome">No answer in time.</div>
       )}
     </form>
+  )
+}
+
+function ApprovalCard({ item, who, onDecide }: { item: ApprovalItem; who: string; onDecide: (d: 'allow' | 'deny') => void }) {
+  return (
+    <div className={`card approvalCard${item.state === 'pending' ? ' pending' : ''}`}>
+      <div className="cardHead attention">
+        <Icon name="alert" size={16} strokeWidth={2.5} />
+        <span>
+          {who} {item.plan ? 'has a plan for you' : 'needs your approval'}
+        </span>
+      </div>
+      <div className="approvalAction">{item.action}</div>
+      {item.detail && <div className="approvalDetail">{item.detail}</div>}
+      {item.body &&
+        (item.plan ? (
+          <pre className="approvalBody">{item.body}</pre>
+        ) : (
+          <details className="approvalInput">
+            <summary>Input</summary>
+            <pre className="approvalBody">{item.body}</pre>
+          </details>
+        ))}
+      {item.state === 'pending' ? (
+        <div className="cardButtons">
+          <button className="primaryButton" onClick={() => onDecide('allow')}>
+            Approve
+          </button>
+          <button className="secondaryButton" onClick={() => onDecide('deny')}>
+            {item.plan ? 'Keep planning' : 'Deny'}
+          </button>
+        </div>
+      ) : (
+        <div className="cardOutcome">{outcomeOf(item)}</div>
+      )}
+    </div>
   )
 }
 
@@ -215,15 +248,17 @@ type Props = {
   loading: boolean
   working: boolean
   blocked: boolean
+  now: number
   // The plan's usage limit; blocks is false when its reset time is unknown.
   limit: { text: string; blocks: boolean } | null
-  detailsOpen: boolean
+  panelOpen: boolean
   onSend: (text: string, attachments: string[], model: NonNullable<Model> | null) => Promise<void>
   onStop: () => Promise<void>
   onTakeOver: () => Promise<void>
   onDecide: (id: string, decision: 'allow' | 'deny') => Promise<void>
   onAnswer: (id: string, answers: Answers) => Promise<void>
-  onToggleDetails: () => void
+  onTogglePanel: () => void
+  onDetails: () => void
 }
 
 export function ChatPane(props: Props) {
@@ -233,6 +268,7 @@ export function ChatPane(props: Props) {
   const scroller = useRef<HTMLDivElement>(null)
   const nameOf = (id: string) => bots.find((b) => b.id === id)?.name ?? id
   const tasks = items.findLast((i): i is TasksItem => i.kind === 'tasks')
+  const today = new Date(props.now)
 
   useEffect(() => {
     const el = scroller.current
@@ -262,148 +298,165 @@ export function ChatPane(props: Props) {
 
   return (
     <main className={`chat${dragging ? ' dropping' : ''}`} onDragOver={onDragOver} onDragLeave={onDragLeave} onDrop={onDrop}>
-      <header className="chatHead">
+      <header className="paneHead chatHead">
+        <Avatar id={bot.id} name={bot.name} size={28} />
         <div className="chatTitle">
           <h2 className="chatName">{bot.name}</h2>
-          <div className="chatStatus">{bot.statusLine}</div>
+          <div className={`chatStatus ${bot.status}`}>{bot.statusLine}</div>
         </div>
-        {working && !bot.paused && (
-          <button className="secondaryButton" onClick={() => void props.onStop()}>
-            Stop
+        <div className="headActions">
+          {working && !bot.paused && (
+            <button className="iconButton" aria-label="Stop" data-tip="Stop" onClick={() => void props.onStop()}>
+              <Icon name="stop" />
+            </button>
+          )}
+          <button
+            className={`iconButton${bot.paused ? ' active' : ''}`}
+            aria-label={bot.paused ? 'Hand back' : 'Take over'}
+            data-tip={bot.paused ? 'Hand back' : 'Take over'}
+            onClick={() => void props.onTakeOver()}
+          >
+            <Icon name={bot.paused ? 'play' : 'hand'} />
           </button>
-        )}
-        <button className={`secondaryButton${bot.paused ? ' inverted' : ''}`} onClick={() => void props.onTakeOver()}>
-          {bot.paused ? 'Hand back' : 'Take over'}
-        </button>
-        <button
-          className="secondaryButton detailsToggle"
-          aria-expanded={props.detailsOpen}
-          aria-controls="details"
-          onClick={props.onToggleDetails}
-        >
-          Details
-        </button>
+          <button className="iconButton" aria-label="Details" data-tip="Details" aria-controls="details" onClick={props.onDetails}>
+            <Icon name="info" />
+          </button>
+          <button
+            className={`iconButton${props.panelOpen ? ' active' : ''}`}
+            aria-label={`${bot.name}'s screen`}
+            data-tip={props.panelOpen ? 'Hide screen' : 'Show screen'}
+            aria-pressed={props.panelOpen}
+            aria-controls="details"
+            onClick={props.onTogglePanel}
+          >
+            <Icon name="screen" />
+          </button>
+        </div>
       </header>
 
       {limit && (
-        <div className="takeoverBanner limitBanner" role="status">
+        <div className="banner limitBanner" role="status">
           {limit.text}
         </div>
       )}
 
       {bot.paused && (
-        <div className="takeoverBanner" role="status">
-          You are driving. The bot is paused until you hand control back.
+        <div className="banner" role="status">
+          You are driving. {bot.name} is paused until you hand control back.
         </div>
       )}
 
       <div className="messages" ref={scroller} aria-live="polite">
-        {items.length === 0 && !props.loading && (
-          <p className="emptyChat">
-            No messages yet. {bot.builtin === 'chief' ? 'Ask for a summary or hand out a task.' : `Tell ${bot.name} what you need.`}
-          </p>
-        )}
-        {toRows(items).map((row) => {
-          if (row.kind === 'activity') {
-            return (
-              <div key={row.id} className="activityCard">
-                <div className="cardLabel">{nameOf(row.botId)} · working</div>
-                <ul className="activityList">
-                  {row.entries.map((entry) => (
-                    <ActivityLine key={entry.id} item={entry} />
-                  ))}
-                </ul>
-              </div>
-            )
-          }
-          const item = row.item
-          switch (item.kind) {
-            case 'user':
+        <div className="messagesInner">
+          {items.length === 0 && !props.loading && (
+            <div className="emptyChat">
+              <Avatar id={bot.id} name={bot.name} size={64} />
+              <p className="emptyName">{bot.name}</p>
+              <p className="mutedText">
+                {bot.builtin === 'chief' ? 'Ask for a summary or hand out a task.' : `Tell ${bot.name} what you need.`}
+              </p>
+            </div>
+          )}
+          {toRows(items).map((row) => {
+            if (row.kind === 'divider') {
               return (
-                <div key={item.id} className="userRow">
-                  {item.attachments && <Attachments botId={bot.id} attachments={item.attachments} />}
-                  {item.text && <div className="userBubble">{item.text}</div>}
+                <div key={row.id} className="timeDivider">
+                  <time dateTime={row.at}>{dividerTime(row.at, today)}</time>
                 </div>
               )
-            case 'assistant':
+            }
+            if (row.kind === 'activity') {
               return (
-                <div key={item.id} className="botRow">
-                  <span className="avatar small" style={{ background: tintOf(item.botId) }} aria-hidden="true">
-                    {initialsOf(nameOf(item.botId))}
-                  </span>
-                  <div className="botBody">
-                    <div className="botMeta">
-                      <span className="botWho">{nameOf(item.botId)}</span>
-                      <span className="botTime">{timeOf(item.at)}</span>
-                    </div>
-                    <div className="botBubble">{item.text}</div>
+                <div key={row.id} className="card activityCard">
+                  <div className="cardHead">
+                    <Icon name="spark" size={14} />
+                    <span>
+                      {nameOf(row.botId)} · {row.entries.length === 1 ? '1 step' : `${row.entries.length} steps`}
+                    </span>
                   </div>
-                </div>
-              )
-            case 'approval':
-              return (
-                <div key={item.id} className="approvalCard">
-                  <div className="cardLabel approvalLabel">{nameOf(item.botId)} needs your approval</div>
-                  <div className="approvalAction">{item.action}</div>
-                  {item.detail && <div className="approvalDetail">{item.detail}</div>}
-                  {item.body &&
-                    (item.plan ? (
-                      <pre className="approvalBody">{item.body}</pre>
-                    ) : (
-                      <details>
-                        <summary className="approvalDetail">Input</summary>
-                        <pre className="approvalBody">{item.body}</pre>
-                      </details>
+                  <ul className="activityList">
+                    {row.entries.map((entry) => (
+                      <ActivityLine key={entry.id} item={entry} />
                     ))}
-                  {item.state === 'pending' ? (
-                    <div className="approvalButtons">
-                      <button className="darkButton" onClick={() => void props.onDecide(item.id, 'allow')}>
-                        Approve
-                      </button>
-                      <button className="secondaryButton" onClick={() => void props.onDecide(item.id, 'deny')}>
-                        {item.plan ? 'Keep planning' : 'Deny'}
-                      </button>
+                  </ul>
+                </div>
+              )
+            }
+            const item = row.item
+            switch (item.kind) {
+              case 'user':
+                return (
+                  <div key={item.id} className="userRow">
+                    {item.attachments && <Attachments botId={bot.id} attachments={item.attachments} />}
+                    {item.text && (
+                      <div className="bubble userBubble" title={new Date(item.at).toLocaleString()}>
+                        {item.text}
+                      </div>
+                    )}
+                  </div>
+                )
+              case 'assistant':
+                return (
+                  <div key={item.id} className="botRow">
+                    {item.botId !== bot.id && <div className="botWho">{nameOf(item.botId)}</div>}
+                    <div className="bubble botBubble" title={new Date(item.at).toLocaleString()}>
+                      {item.text}
                     </div>
-                  ) : (
-                    <div className="approvalOutcome">{outcomeOf(item)}</div>
-                  )}
-                </div>
-              )
-            case 'question':
-              return (
-                <QuestionCard
-                  key={item.id}
-                  item={item}
-                  who={nameOf(item.botId)}
-                  onAnswer={(answers) => props.onAnswer(item.id, answers)}
-                />
-              )
-            case 'route':
-              return (
-                <div key={item.id} className="routeLine">
-                  {routeLine(item)}
-                </div>
-              )
-            case 'routine':
-              return (
-                <div key={item.id} className="routineDivider">
-                  Routine · {item.name}
-                </div>
-              )
-            case 'error':
-              return (
-                <div key={item.id} className="errorCard" role="alert">
-                  {item.text}
-                </div>
-              )
-          }
-        })}
-        {working && !bot.paused && <div className="workingLine">{bot.name} is working…</div>}
+                  </div>
+                )
+              case 'approval':
+                return (
+                  <ApprovalCard key={item.id} item={item} who={nameOf(item.botId)} onDecide={(d) => void props.onDecide(item.id, d)} />
+                )
+              case 'question':
+                return (
+                  <QuestionCard
+                    key={item.id}
+                    item={item}
+                    who={nameOf(item.botId)}
+                    onAnswer={(answers) => props.onAnswer(item.id, answers)}
+                  />
+                )
+              case 'route':
+                return (
+                  <div key={item.id} className="routeLine">
+                    {routeLine(item)}
+                  </div>
+                )
+              case 'routine':
+                return (
+                  <div key={item.id} className="routineDivider">
+                    <Icon name="clock" size={14} />
+                    <span>Routine · {item.name}</span>
+                  </div>
+                )
+              case 'error':
+                return (
+                  <div key={item.id} className="errorCard" role="alert">
+                    {item.text}
+                  </div>
+                )
+            }
+          })}
+          {working && !bot.paused && (
+            <div className="botRow">
+              <div className="bubble botBubble typing">
+                <span className="typingDots" aria-hidden="true">
+                  <span />
+                  <span />
+                  <span />
+                </span>
+                <span className="visuallyHidden">{bot.name} is working…</span>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
 
-      {tasks && <TaskCard key={tasks.id} item={tasks} working={working} />}
-
-      <Composer bot={bot} closed={closed} limit={limit} dropped={dropped} onSend={props.onSend} />
+      <div className="chatFoot">
+        {tasks && <TaskCard key={tasks.id} item={tasks} working={working} />}
+        <Composer bot={bot} closed={closed} limit={limit} dropped={dropped} onSend={props.onSend} />
+      </div>
     </main>
   )
 }

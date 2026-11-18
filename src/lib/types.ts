@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import type { LastLine } from './chatlog'
 import { AttachmentSchema } from './context'
 import { QuestionSchema } from './questions'
 import { TASK_KINDS } from './router'
@@ -33,7 +34,13 @@ export type Bot = Required<z.infer<typeof StoredBotSchema>>
 export const BotsFileSchema = z.array(StoredBotSchema)
 
 export type BotStatus = 'paused' | 'needs_approval' | 'working' | 'idle'
-export type BotView = Bot & { status: BotStatus; statusLine: string; delegatedBy: BotId | null }
+export type BotView = Bot & {
+  status: BotStatus
+  statusLine: string
+  delegatedBy: BotId | null
+  last: LastLine | null
+  lastReplyAt: string | null
+}
 
 export const ApprovalStateSchema = z.enum(['pending', 'allowed', 'denied', 'expired'])
 export type ApprovalState = z.infer<typeof ApprovalStateSchema>
@@ -113,4 +120,4 @@ export type StreamEvent = { type: 'item'; item: ChatItem } | { type: 'item_updat
 export type MemoryEntry = { date: string; text: string }
 
 export type Connector = { name: string; status: string; tools: number }
-export type Capabilities = { plugins: string[]; skills: number; connectors: Connector[] } | { error: string }
+export type Capabilities = { plugins: string[]; skills: string[]; connectors: Connector[] } | { error: string }

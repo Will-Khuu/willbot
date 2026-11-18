@@ -1,9 +1,10 @@
 'use client'
 
-import { useCallback, useEffect, useId, useState, type FormEvent } from 'react'
-import { EVERY_HOURS, OUTCOME_TEXT, dayWord, describe, type Routine, type Schedule } from '@/lib/routines'
+import { useCallback, useEffect, useId, useRef, useState, type FormEvent } from 'react'
+import { EVERY_HOURS, OUTCOME_TEXT, dayWord, scheduleWords, type Routine, type Schedule } from '@/lib/routines'
 import type { BotView } from '@/lib/types'
 import { api, type RoutineInput } from './api'
+import { Icon } from './icons'
 import { timeOf } from './look'
 
 const FULL_DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
@@ -14,9 +15,59 @@ const KIND_LABELS: Record<Schedule['kind'], string> = {
   every: 'Every N hours',
 }
 
-function nextText(r: Routine): string {
-  if (!r.nextRunAt) return 'Off'
-  return `Next: ${dayWord(new Date(r.nextRunAt), new Date())} ${timeOf(r.nextRunAt)}`
+function nextText(r: Routine): string | null {
+  return r.nextRunAt && `Next ${dayWord(new Date(r.nextRunAt), new Date())} ${timeOf(r.nextRunAt)}`
+}
+
+type MenuAction = { label: string; run: () => void; danger?: boolean }
+
+function RowMenu({ name, actions }: { name: string; actions: MenuAction[] }) {
+  const [open, setOpen] = useState(false)
+  const root = useRef<HTMLDivElement>(null)
+  const id = useId()
+
+  useEffect(() => {
+    if (!open) return
+    const away = (e: PointerEvent) => !root.current?.contains(e.target as Node) && setOpen(false)
+    const escape = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false)
+    document.addEventListener('pointerdown', away)
+    document.addEventListener('keydown', escape)
+    return () => {
+      document.removeEventListener('pointerdown', away)
+      document.removeEventListener('keydown', escape)
+    }
+  }, [open])
+
+  return (
+    <div className="rowMenu" ref={root}>
+      <button
+        className="iconButton small"
+        aria-label={`${name} actions`}
+        aria-expanded={open}
+        aria-controls={id}
+        onClick={() => setOpen((o) => !o)}
+      >
+        <Icon name="more" size={18} />
+      </button>
+      {open && (
+        <ul id={id} className="menu" aria-label={`${name} actions`}>
+          {actions.map((a) => (
+            <li key={a.label}>
+              <button
+                className={`menuItem${a.danger ? ' danger' : ''}`}
+                onClick={() => {
+                  setOpen(false)
+                  a.run()
+                }}
+              >
+                {a.label}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
 }
 
 type Draft = { name: string; prompt: string; kind: Schedule['kind']; time: string; day: number; hours: number }
@@ -230,16 +281,17 @@ export function Routines({ bot }: { bot: BotView }) {
   }
 
   return (
-    <section className="detailSection">
+    <section className="panelSection" aria-labelledby="routines-label">
       <div className="sectionHead">
-        <h3 className="sectionLabel">Routines</h3>
+        <h3 className="sectionLabel" id="routines-label">
+          Routines
+        </h3>
         {editing === null && (
-          <button className="linkButton" onClick={() => setEditing('new')}>
-            Add routine
+          <button className="iconButton small" aria-label="Add routine" data-tip="Add routine" onClick={() => setEditing('new')}>
+            <Icon name="plus" size={18} />
           </button>
         )}
       </div>
-      <p className="mutedText">Routines run while will-bot is open.</p>
       {routines?.length === 0 && editing !== 'new' && (
         <p className="mutedText">No routines yet. Add one to send {bot.name} a message on a schedule.</p>
       )}
@@ -273,46 +325,40 @@ export function Routines({ bot }: { bot: BotView }) {
                 }}
               />
             ) : (
-              <>
-                <div className="routineHead">
+              <div className={`routineRow${r.enabled ? '' : ' paused'}`}>
+                <span className="routineIcon">
+                  <Icon name={r.enabled ? 'clock' : 'pause'} size={16} />
+                </span>
+                <span className="routineText">
                   <span className="routineName">{r.name}</span>
-                  <label className="switch">
-                    <input
-                      type="checkbox"
-                      role="switch"
-                      checked={r.enabled}
-                      aria-label={`${r.name} on`}
-                      onChange={(e) => void act(() => api.patchRoutine(r.id, { enabled: e.target.checked }))}
-                    />
-                    <span className="switchTrack" aria-hidden="true" />
-                  </label>
-                </div>
-                <span className="mutedText">
-                  {describe(r.schedule)} · {nextText(r)}
+                  <span className="routineWhen">{r.enabled ? scheduleWords(r.schedule) : 'Paused'}</span>
+                  {r.enabled && nextText(r) && <span className="routineNext">{nextText(r)}</span>}
+                  {r.lastOutcome && r.lastOutcome !== 'ran' && <span className="routineOutcome">{OUTCOME_TEXT[r.lastOutcome]}</span>}
                 </span>
-                {r.lastOutcome && r.lastOutcome !== 'ran' && <span className="routineOutcome">{OUTCOME_TEXT[r.lastOutcome]}</span>}
-                <span className="row routineActions">
-                  <button className="linkButton" aria-label={`Run ${r.name} now`} onClick={() => void act(() => api.runRoutine(r.id))}>
-                    Run now
-                  </button>
-                  <button className="linkButton" aria-label={`Edit ${r.name}`} onClick={() => setEditing(r.id)}>
-                    Edit
-                  </button>
-                  <button
-                    className="linkButton"
-                    aria-label={`Delete ${r.name}`}
-                    onClick={() => {
-                      if (window.confirm(`Delete the routine "${r.name}"?`)) void act(() => api.deleteRoutine(r.id))
-                    }}
-                  >
-                    Delete
-                  </button>
-                </span>
-              </>
+                <RowMenu
+                  name={r.name}
+                  actions={[
+                    { label: 'Run now', run: () => void act(() => api.runRoutine(r.id)) },
+                    { label: 'Edit', run: () => setEditing(r.id) },
+                    {
+                      label: r.enabled ? 'Pause' : 'Resume',
+                      run: () => void act(() => api.patchRoutine(r.id, { enabled: !r.enabled })),
+                    },
+                    {
+                      label: 'Delete',
+                      danger: true,
+                      run: () => {
+                        if (window.confirm(`Delete the routine "${r.name}"?`)) void act(() => api.deleteRoutine(r.id))
+                      },
+                    },
+                  ]}
+                />
+              </div>
             )}
           </li>
         ))}
       </ul>
+      <p className="sectionNote">Routines run while will-bot is open.</p>
     </section>
   )
 }

@@ -1,4 +1,4 @@
-import { listBots, readRoutines } from './store'
+import { chatSummary, listBots, readRoutines } from './store'
 import { viewBot } from './runtime'
 import { nextLabel, soonest } from './routines'
 import type { BotView } from './types'
@@ -10,6 +10,6 @@ export function botViews(): BotView[] {
   const now = new Date()
   return bots.map((b) => {
     const next = soonest(routines.filter((r) => r.botId === b.id))
-    return viewBot(b, names, next && nextLabel(next, now))
+    return viewBot(b, names, next && nextLabel(next, now), chatSummary(b.id))
   })
 }
