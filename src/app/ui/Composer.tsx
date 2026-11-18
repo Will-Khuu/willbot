@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useId, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
+import { useEffect, useId, useLayoutEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
 import { insertMention, MAX_ATTACHMENT_BYTES, MAX_ATTACHMENTS, mentionAt, type FileHit, type Upload } from '@/lib/context'
 import { MODEL_LABELS } from '@/lib/router'
 import { MODELS, type BotView, type Model } from '@/lib/types'
@@ -49,7 +49,7 @@ export function Composer({ bot, closed, limit, dropped, onSend }: Props) {
   const [pending, setPending] = useState<Pending[]>([])
   const [note, setNote] = useState<string | null>(null)
   const [mention, setMention] = useState<Mention | null>(null)
-  const input = useRef<HTMLInputElement>(null)
+  const input = useRef<HTMLTextAreaElement>(null)
   const filePicker = useRef<HTMLInputElement>(null)
   const search = useRef<AbortController | null>(null)
   const listId = useId()
@@ -58,6 +58,14 @@ export function Composer({ bot, closed, limit, dropped, onSend }: Props) {
   const [recording, setRecording] = useState(false)
 
   useEffect(() => setCanDictate(speechRecognition() !== null), [])
+
+  // Grow with the text until the CSS max-height, then scroll.
+  useLayoutEffect(() => {
+    const el = input.current
+    if (!el) return
+    el.style.height = 'auto'
+    el.style.height = `${el.scrollHeight}px`
+  }, [draft])
 
   useEffect(() => () => recognition.current?.stop(), [])
 
@@ -151,8 +159,15 @@ export function Composer({ bot, closed, limit, dropped, onSend }: Props) {
     })
   }
 
-  const onKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
-    if (!mention) return
+  const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (!mention) {
+      // Enter sends and Shift+Enter starts a new line; isComposing leaves IME input alone.
+      if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+        e.preventDefault()
+        e.currentTarget.form?.requestSubmit()
+      }
+      return
+    }
     const count = mention.hits.length
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
       e.preventDefault()
@@ -266,10 +281,11 @@ export function Composer({ bot, closed, limit, dropped, onSend }: Props) {
           <label htmlFor="composer" className="visuallyHidden">
             Message {bot.name}. Type @ to mention a file.
           </label>
-          <input
+          <textarea
             ref={input}
             id="composer"
             className="composerInput"
+            rows={1}
             value={draft}
             role="combobox"
             aria-autocomplete="list"
