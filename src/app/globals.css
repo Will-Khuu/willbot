@@ -492,6 +492,68 @@ p {
   overflow-wrap: anywhere;
 }
 
+.activityButton {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  width: 100%;
+  min-height: 28px;
+  padding: 2px 0;
+  border: none;
+  background: none;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.activityButton > span:first-child {
+  flex: none;
+  width: 10px;
+  color: var(--muted);
+}
+
+.activityError {
+  flex: none;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--error-ink);
+  border: 1px solid var(--error-line);
+  border-radius: 4px;
+  padding: 0 4px;
+}
+
+.activityDetail {
+  margin: 4px 0 8px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.detailLabel {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.detailPre {
+  margin: 0;
+  max-height: 320px;
+  overflow: auto;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--ground);
+  border: 1px solid var(--line);
+  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre;
+}
+
 .approvalCard {
   border: 1.5px solid var(--ink);
   padding: 16px;
@@ -620,6 +682,97 @@ summary.approvalDetail {
 
 .composerInput:disabled {
   background: var(--ground);
+}
+
+.composerModel {
+  flex: none;
+  min-height: 48px;
+  padding: 0 10px;
+  border-radius: 12px;
+  border: 1px solid var(--control-line);
+  background: #ffffff;
+  font-size: 13px;
+  color: var(--body-ink);
+}
+
+.composerModel:disabled {
+  background: var(--ground);
+}
+
+.taskCard {
+  border-top: 1px solid var(--line);
+  background: var(--chat);
+  padding: 4px 24px 0;
+}
+
+.taskHead {
+  width: 100%;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border: none;
+  background: none;
+  padding: 0;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.taskList {
+  margin: 0;
+  padding: 0 0 8px;
+  list-style: none;
+  max-height: 180px;
+  overflow-y: auto;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--body-ink);
+}
+
+.task {
+  display: flex;
+  gap: 8px;
+  overflow-wrap: anywhere;
+}
+
+.task.completed {
+  color: var(--muted);
+  text-decoration: line-through;
+}
+
+.taskMark {
+  flex: none;
+  width: 14px;
+  text-align: center;
+}
+
+.task.in_progress .taskMark {
+  color: var(--accent);
+  animation: taskPulse 1.6s ease-in-out infinite;
+}
+
+@keyframes taskPulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .task.in_progress .taskMark {
+    animation: none;
+  }
+}
+
+.routeLine {
+  margin-left: 42px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--muted);
+  overflow-wrap: anywhere;
 }
 
 .details {
@@ -822,7 +975,8 @@ summary.approvalDetail {
 
   .chatHead,
   .messages,
-  .composer {
+  .composer,
+  .taskCard {
     padding-left: 16px;
     padding-right: 16px;
   }

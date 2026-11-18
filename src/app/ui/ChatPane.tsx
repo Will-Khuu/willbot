@@ -1,20 +1,33 @@
 'use client'
 
 import { useEffect, useRef, useState, type FormEvent } from 'react'
-import type { Answers, ApprovalItem, BotView, ChatItem, QuestionItem } from '@/lib/types'
+import { MODEL_LABELS, routeLine } from '@/lib/router'
+import { taskCounts, type TaskStatus } from '@/lib/tasks'
+import {
+  MODELS,
+  type ActivityItem,
+  type Answers,
+  type ApprovalItem,
+  type BotView,
+  type ChatItem,
+  type Model,
+  type QuestionItem,
+  type TasksItem,
+} from '@/lib/types'
 import { initialsOf, timeOf, tintOf } from './look'
 
 type Row =
-  | { kind: 'item'; item: Exclude<ChatItem, { kind: 'activity' }> }
-  | { kind: 'activity'; id: string; botId: string; labels: string[] }
+  | { kind: 'item'; item: Exclude<ChatItem, { kind: 'activity' | 'tasks' }> }
+  | { kind: 'activity'; id: string; botId: string; entries: ActivityItem[] }
 
 function toRows(items: ChatItem[]): Row[] {
   const rows: Row[] = []
   for (const item of items) {
     const last = rows.at(-1)
+    if (item.kind === 'tasks') continue
     if (item.kind !== 'activity') rows.push({ kind: 'item', item })
-    else if (last?.kind === 'activity' && last.botId === item.botId) last.labels.push(item.label)
-    else rows.push({ kind: 'activity', id: item.id, botId: item.botId, labels: [item.label] })
+    else if (last?.kind === 'activity' && last.botId === item.botId) last.entries.push(item)
+    else rows.push({ kind: 'activity', id: item.id, botId: item.botId, entries: [item] })
   }
   return rows
 }
@@ -24,6 +37,68 @@ function outcomeOf(item: ApprovalItem): string {
   if (item.state === 'expired') return 'No answer in time, so it was not done.'
   if (item.state === 'denied') return item.plan ? 'Sent back to keep planning.' : 'Denied.'
   return ''
+}
+
+function ActivityLine({ item }: { item: ActivityItem }) {
+  const [open, setOpen] = useState(false)
+  const { detail } = item
+  if (!detail) return <li>{item.label}</li>
+  const panel = `detail-${item.id}`
+  return (
+    <li>
+      <button className="activityButton" aria-expanded={open} aria-controls={panel} onClick={() => setOpen((o) => !o)}>
+        <span aria-hidden="true">{open ? '▾' : '▸'}</span>
+        <span>{item.label}</span>
+        {detail.isError && <span className="activityError">Error</span>}
+      </button>
+      {open && (
+        <div id={panel} className="activityDetail">
+          <pre className="detailPre">{detail.input}</pre>
+          {detail.output !== undefined && (
+            <>
+              <div className="detailLabel">{detail.isError ? 'Error' : 'Output'}</div>
+              <pre className="detailPre">{detail.output || '(no text output)'}</pre>
+            </>
+          )}
+        </div>
+      )}
+    </li>
+  )
+}
+
+const TASK_MARK: Record<TaskStatus, { mark: string; text: string }> = {
+  completed: { mark: '✓', text: 'Done' },
+  in_progress: { mark: '●', text: 'In progress' },
+  pending: { mark: '○', text: 'Pending' },
+}
+
+function TaskCard({ item, working }: { item: TasksItem; working: boolean }) {
+  const [open, setOpen] = useState(true)
+  const { done, total } = taskCounts(item.items)
+  if (total === 0 || (done === total && !working)) return null
+  return (
+    <section className="taskCard" aria-label="Tasks">
+      <button className="taskHead" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
+        <span>
+          Tasks {done}/{total}
+        </span>
+        <span aria-hidden="true">{open ? '▾' : '▸'}</span>
+      </button>
+      {open && (
+        <ul className="taskList">
+          {item.items.map((t, i) => (
+            <li key={t.taskId ?? i} className={`task ${t.status}`}>
+              <span className="taskMark" aria-hidden="true">
+                {TASK_MARK[t.status].mark}
+              </span>
+              <span className="visuallyHidden">{TASK_MARK[t.status].text}: </span>
+              <span>{t.status === 'in_progress' && t.activeForm ? t.activeForm : t.content}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  )
 }
 
 const OTHER = '__other__'
@@ -119,7 +194,7 @@ type Props = {
   working: boolean
   blocked: boolean
   detailsOpen: boolean
-  onSend: (text: string) => Promise<void>
+  onSend: (text: string, model: NonNullable<Model> | null) => Promise<void>
   onStop: () => Promise<void>
   onTakeOver: () => Promise<void>
   onDecide: (id: string, decision: 'allow' | 'deny') => Promise<void>
@@ -130,8 +205,10 @@ type Props = {
 export function ChatPane(props: Props) {
   const { bot, bots, items, working, blocked } = props
   const [draft, setDraft] = useState('')
+  const [pick, setPick] = useState<NonNullable<Model> | null>(null)
   const scroller = useRef<HTMLDivElement>(null)
   const nameOf = (id: string) => bots.find((b) => b.id === id)?.name ?? id
+  const tasks = items.findLast((i): i is TasksItem => i.kind === 'tasks')
 
   useEffect(() => {
     const el = scroller.current
@@ -146,7 +223,8 @@ export function ChatPane(props: Props) {
     const text = draft.trim()
     if (!text || closed) return
     setDraft('')
-    void props.onSend(text)
+    setPick(null)
+    void props.onSend(text, pick)
   }
 
   const placeholder = bot.paused
@@ -198,8 +276,8 @@ export function ChatPane(props: Props) {
               <div key={row.id} className="activityCard">
                 <div className="cardLabel">{nameOf(row.botId)} · working</div>
                 <ul className="activityList">
-                  {row.labels.map((l, i) => (
-                    <li key={i}>{l}</li>
+                  {row.entries.map((entry) => (
+                    <ActivityLine key={entry.id} item={entry} />
                   ))}
                 </ul>
               </div>
@@ -266,6 +344,12 @@ export function ChatPane(props: Props) {
                   onAnswer={(answers) => props.onAnswer(item.id, answers)}
                 />
               )
+            case 'route':
+              return (
+                <div key={item.id} className="routeLine">
+                  {routeLine(item)}
+                </div>
+              )
             case 'error':
               return (
                 <div key={item.id} className="errorCard" role="alert">
@@ -276,6 +360,8 @@ export function ChatPane(props: Props) {
         })}
         {working && !bot.paused && <div className="workingLine">{bot.name} is working…</div>}
       </div>
+
+      {tasks && <TaskCard key={tasks.id} item={tasks} working={working} />}
 
       <form className="composer" onSubmit={submit}>
         <label htmlFor="composer" className="visuallyHidden">
@@ -290,6 +376,23 @@ export function ChatPane(props: Props) {
           disabled={closed}
           autoComplete="off"
         />
+        <label htmlFor="composer-model" className="visuallyHidden">
+          Model
+        </label>
+        <select
+          id="composer-model"
+          className="composerModel"
+          value={pick ?? ''}
+          disabled={closed}
+          onChange={(e) => setPick(e.target.value === '' ? null : (e.target.value as NonNullable<Model>))}
+        >
+          <option value="">Auto</option>
+          {MODELS.map((m) => (
+            <option key={m} value={m}>
+              {MODEL_LABELS[m]}
+            </option>
+          ))}
+        </select>
         <button className="sendButton" type="submit" disabled={!draft.trim() || closed}>
           Send
         </button>

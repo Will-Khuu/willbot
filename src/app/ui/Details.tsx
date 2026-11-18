@@ -2,6 +2,7 @@
 
 import { useEffect, useState, type FormEvent } from 'react'
 import { MODELS, type BotView, type Capabilities, type MemoryEntry, type Model } from '@/lib/types'
+import { MODEL_LABELS } from '@/lib/router'
 import { api } from './api'
 
 type Props = {
@@ -14,12 +15,11 @@ type Props = {
   onSaveFolder: (folder: string) => Promise<void>
   onSaveModel: (model: Model) => Promise<void>
   onSaveBrowser: (browser: boolean) => Promise<void>
+  onSaveRouter: (router: boolean) => Promise<void>
   onDelete: () => Promise<void>
 }
 
 const today = () => new Date().toISOString().slice(0, 10)
-
-const MODEL_LABELS: Record<NonNullable<Model>, string> = { haiku: 'Haiku', sonnet: 'Sonnet', opus: 'Opus' }
 
 function setupChips(caps: Capabilities): string[] {
   if ('error' in caps) return []
@@ -169,9 +169,11 @@ export function Details(props: Props) {
         <select
           id="model-field"
           className="field"
-          value={bot.model ?? ''}
+          value={bot.router ? 'router' : (bot.model ?? '')}
+          disabled={bot.router}
           onChange={(e) => void props.onSaveModel(e.target.value === '' ? null : (e.target.value as NonNullable<Model>))}
         >
+          {bot.router && <option value="router">Router</option>}
           <option value="">Default (your Claude Code model)</option>
           {MODELS.map((m) => (
             <option key={m} value={m}>
@@ -179,6 +181,10 @@ export function Details(props: Props) {
             </option>
           ))}
         </select>
+        <label className="option">
+          <input type="checkbox" checked={bot.router} onChange={(e) => void props.onSaveRouter(e.target.checked)} />
+          <span>Pick the model per task (pstack table)</span>
+        </label>
         <label className="option">
           <input type="checkbox" checked={bot.browser} onChange={(e) => void props.onSaveBrowser(e.target.checked)} />
           <span>Browser (Playwright, headless)</span>

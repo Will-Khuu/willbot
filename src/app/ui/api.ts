@@ -23,12 +23,16 @@ export const api = {
   health: () => call<{ apiKeySet: boolean; billingVar: string | null }>('/api/health'),
   bots: () => call<BotView[]>('/api/bots'),
   createBot: (name: string, job: string) => call<BotView>('/api/bots', { method: 'POST', json: { name, job } }),
-  patchBot: (id: string, patch: { job?: string; paused?: boolean; folder?: string; model?: Model; browser?: boolean }) =>
+  patchBot: (
+    id: string,
+    patch: { job?: string; paused?: boolean; folder?: string; model?: Model; browser?: boolean; router?: boolean },
+  ) =>
     call<BotView>(`/api/bots/${id}`, { method: 'PATCH', json: patch }),
   capabilities: () => call<Capabilities>('/api/capabilities'),
   deleteBot: (id: string) => call<null>(`/api/bots/${id}`, { method: 'DELETE' }),
   chat: (id: string) => call<Chat>(`/api/chats/${id}`),
-  send: (botId: string, message: string) => call<{ ok: true }>('/api/chat', { method: 'POST', json: { botId, message } }),
+  send: (botId: string, message: string, model: NonNullable<Model> | null) =>
+    call<{ ok: true }>('/api/chat', { method: 'POST', json: { botId, message, model: model ?? undefined } }),
   stop: (botId: string) => call<{ stopped: boolean }>('/api/chat/stop', { method: 'POST', json: { botId } }),
   decide: (id: string, decision: 'allow' | 'deny') =>
     call<{ ok: true }>(`/api/approvals/${id}`, { method: 'POST', json: { decision } }),

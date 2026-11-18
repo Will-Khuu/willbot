@@ -27,5 +27,7 @@ export function sdkEnv(): Record<string, string> {
   env.CLAUDE_AGENT_SDK_CLIENT_APP = 'will-bot/0.1.0'
   // Session idle/running events; they change what is reported, not how the session behaves.
   env.CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS = '1'
+  // Interactive Claude Code has its task list tools; a headless session needs this to get them.
+  env.CLAUDE_CODE_ENABLE_TODO_TOOLS = '1'
   return env
 }

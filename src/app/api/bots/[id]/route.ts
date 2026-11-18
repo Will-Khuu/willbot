@@ -19,6 +19,7 @@ const PatchBot = z
       .optional(),
     model: ModelSchema.optional(),
     browser: z.boolean().optional(),
+    router: z.boolean().optional(),
   })
   .strict()
 
@@ -33,6 +34,8 @@ export async function PATCH(req: Request, { params }: IdParams) {
   if (body.paused) await closeSession(bot.id)
   if (folder !== undefined && folder !== bot.folder) await changeFolder(bot.id)
   if (body.model !== undefined) await applyModel(bot.id, body.model)
+  // Router off: back to the configured model at once. Router on takes effect with the next message.
+  else if (body.router === false && bot.router && updated) await applyModel(bot.id, updated.model)
   if (body.name !== undefined || body.job !== undefined || body.browser !== undefined) markStale(bot.id)
   if (bot.builtin !== 'chief') markChiefStale()
   return Response.json(updated)

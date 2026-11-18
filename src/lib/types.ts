@@ -1,5 +1,7 @@
 import { z } from 'zod'
 import { QuestionSchema } from './questions'
+import { TASK_KINDS } from './router'
+import { TaskEntrySchema } from './tasks'
 
 export type { Answers, Question } from './questions'
 
@@ -10,7 +12,7 @@ export const ModelSchema = z.enum(MODELS).nullable()
 export type Model = z.infer<typeof ModelSchema>
 
 // Unknown keys from older files (tools, access) are dropped by z.object.
-// folder and browser have per-bot defaults that store.ts fills in.
+// folder, browser and router have per-bot defaults that store.ts fills in.
 export const StoredBotSchema = z.object({
   id: z.string(),
   name: z.string(),
@@ -18,6 +20,7 @@ export const StoredBotSchema = z.object({
   folder: z.string().optional(),
   model: ModelSchema.default(null),
   browser: z.boolean().optional(),
+  router: z.boolean().optional(),
   paused: z.boolean(),
   builtin: z.literal('chief').nullable(),
   createdAt: z.string(),
@@ -34,7 +37,15 @@ export type ApprovalState = z.infer<typeof ApprovalStateSchema>
 export const ChatItemSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('user'), id: z.string(), text: z.string(), at: z.string() }),
   z.object({ kind: z.literal('assistant'), id: z.string(), botId: z.string(), text: z.string(), at: z.string() }),
-  z.object({ kind: z.literal('activity'), id: z.string(), botId: z.string(), label: z.string(), at: z.string() }),
+  z.object({
+    kind: z.literal('activity'),
+    id: z.string(),
+    botId: z.string(),
+    label: z.string(),
+    // The tool input and its result, each truncated to 4,000 characters.
+    detail: z.object({ input: z.string(), output: z.string().optional(), isError: z.boolean().optional() }).optional(),
+    at: z.string(),
+  }),
   z.object({
     kind: z.literal('approval'),
     id: z.string(),
@@ -58,10 +69,25 @@ export const ChatItemSchema = z.discriminatedUnion('kind', [
     at: z.string(),
   }),
   z.object({ kind: z.literal('error'), id: z.string(), text: z.string(), at: z.string() }),
+  z.object({
+    kind: z.literal('route'),
+    id: z.string(),
+    botId: z.string(),
+    taskKind: z.enum(TASK_KINDS).nullable(),
+    model: z.enum(MODELS),
+    reason: z.string(),
+    changed: z.boolean(),
+    at: z.string(),
+  }),
+  // One per Claude Code session (id `tasks:<sessionId>`), replaced in place as the list changes.
+  z.object({ kind: z.literal('tasks'), id: z.string(), botId: z.string(), items: z.array(TaskEntrySchema), at: z.string() }),
 ])
 export type ChatItem = z.infer<typeof ChatItemSchema>
 export type ApprovalItem = Extract<ChatItem, { kind: 'approval' }>
 export type QuestionItem = Extract<ChatItem, { kind: 'question' }>
+export type ActivityItem = Extract<ChatItem, { kind: 'activity' }>
+export type RouteItem = Extract<ChatItem, { kind: 'route' }>
+export type TasksItem = Extract<ChatItem, { kind: 'tasks' }>
 
 export const ChatSchema = z.object({
   botId: z.string(),

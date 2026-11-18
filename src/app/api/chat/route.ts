@@ -4,10 +4,16 @@ import { billingOverride } from '@/lib/env'
 import { error, findBot, parseBody } from '@/lib/http'
 import { delegatedBy } from '@/lib/runtime'
 import { getBot } from '@/lib/store'
+import { MODELS } from '@/lib/types'
 
 export const dynamic = 'force-dynamic'
 
-const SendMessage = z.object({ botId: z.string(), message: z.string().trim().min(1).max(4000) })
+const SendMessage = z.object({
+  botId: z.string(),
+  message: z.string().trim().min(1).max(4000),
+  // A one-message model pick from the composer; absent means Auto.
+  model: z.enum(MODELS).optional(),
+})
 
 // Replies arrive on GET /api/chats/[id]/stream.
 export async function POST(req: Request) {
@@ -22,6 +28,6 @@ export async function POST(req: Request) {
   if (bot.paused) return error(409, `${bot.name} is paused. Hand control back first.`)
   const owner = delegatedBy(bot.id)
   if (owner) return error(409, `${bot.name} is working for ${getBot(owner)?.name ?? owner}.`)
-  sendMessage(bot, body.message)
+  sendMessage(bot, body.message, body.model ?? null)
   return Response.json({ ok: true }, { status: 202 })
 }

@@ -39,6 +39,7 @@ function newBot(seed: Seed, createdAt: string): Bot {
     folder: defaultFolder(seed.id),
     model: null,
     browser: seed.id === 'builder',
+    router: seed.id === 'builder',
     paused: false,
     createdAt,
   }
@@ -76,6 +77,7 @@ export function listBots(): Bot[] {
     ...b,
     folder: b.folder ?? defaultFolder(b.id),
     browser: b.browser ?? b.id === 'builder',
+    router: b.router ?? b.id === 'builder',
   }))
 }
 
@@ -95,7 +97,7 @@ export function createBot(name: string, job: string): Bot {
   return bot
 }
 
-export type BotPatch = Partial<Pick<Bot, 'name' | 'job' | 'paused' | 'folder' | 'model' | 'browser'>>
+export type BotPatch = Partial<Pick<Bot, 'name' | 'job' | 'paused' | 'folder' | 'model' | 'browser' | 'router'>>
 
 export function updateBot(id: BotId, patch: BotPatch): Bot | null {
   const bots = listBots()

@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import type { Query, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
+import type { Alias } from './router'
 import { delegatedBots, isWorking, type SessionState } from './session'
 import type { Answers, Bot, BotId, BotStatus, BotView, Capabilities, Question, StreamEvent } from './types'
 
@@ -45,6 +46,8 @@ export type LiveSession = {
   // The Chief's team at open time, for the guard and for attributing subagents.
   team: ReadonlySet<BotId>
   idleTimer: NodeJS.Timeout | null
+  // The model will-bot last set on this session; null means the employee's configured model.
+  model: Alias | null
   // query.interrupt(), remembering it was the user's Stop so the turn's error reads as "Stopped."
   interrupt: () => Promise<void>
 }
@@ -65,6 +68,10 @@ type Runtime = {
   sessions: Map<BotId, LiveSession>
   decisions: Map<string, PendingDecision>
   subscribers: Map<BotId, Set<(e: StreamEvent) => void>>
+  // Messages accepted but not yet in the session's inbox (being routed), one controller each.
+  sending: Map<BotId, Set<AbortController>>
+  // Each employee's sends run in order, so routes and messages never reorder.
+  sendTail: Map<BotId, Promise<void>>
   capabilities?: { at: number; value: Promise<Capabilities> }
 }
 
@@ -72,7 +79,16 @@ export const DECISION_TIMEOUT_MS = 10 * 60 * 1000
 
 // Next dev re-evaluates modules on HMR; live sessions and decisions must survive it.
 const g = globalThis as typeof globalThis & { __willbotSessions?: Runtime }
-export const rt: Runtime = (g.__willbotSessions ??= { sessions: new Map(), decisions: new Map(), subscribers: new Map() })
+export const rt: Runtime = (g.__willbotSessions ??= {
+  sessions: new Map(),
+  decisions: new Map(),
+  subscribers: new Map(),
+  sending: new Map(),
+  sendTail: new Map(),
+})
+// A runtime kept across an HMR from before these fields existed.
+rt.sending ??= new Map()
+rt.sendTail ??= new Map()
 
 const CAPABILITIES_TTL_MS = 10 * 60 * 1000
 
@@ -176,7 +192,7 @@ export function viewBot(bot: Bot, names: Map<BotId, string>): BotView {
     ? 'paused'
     : waiting
       ? 'needs_approval'
-      : (live && isWorking(live.state)) || delegator
+      : (live && isWorking(live.state)) || delegator || rt.sending.get(bot.id)?.size
         ? 'working'
         : 'idle'
   const statusLine = {
