@@ -115,7 +115,11 @@ export const ChatSchema = z.object({
 })
 export type Chat = z.infer<typeof ChatSchema>
 
-export type StreamEvent = { type: 'item'; item: ChatItem } | { type: 'item_update'; item: ChatItem } | { type: 'status' }
+export type StreamEvent =
+  | { type: 'item'; item: ChatItem }
+  | { type: 'item_update'; item: ChatItem }
+  | { type: 'status' }
+  | { type: 'routines' }
 
 export type MemoryEntry = { date: string; text: string }
 

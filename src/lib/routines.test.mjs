@@ -4,8 +4,27 @@ import { test } from 'node:test'
 // Fixed zone with DST; node --test runs each file in its own process.
 process.env.TZ = 'America/New_York'
 
-const { dayWord, describe, scheduleWords, due, nextLabel, nextRun, outcomeFor, record, scheduledOutcome, soonest, upcoming, ScheduleSchema } =
-  await import('./routines.ts')
+const {
+  dayWord,
+  describe,
+  scheduleWords,
+  due,
+  mayManage,
+  newRoutine,
+  nextLabel,
+  nextRun,
+  outcomeFor,
+  patchRoutine,
+  record,
+  runWords,
+  scheduledOutcome,
+  soonest,
+  upcoming,
+  RoutineInputSchema,
+  RoutinePatchSchema,
+  ScheduleSchema,
+  SCHEDULE_EXAMPLES,
+} = await import('./routines.ts')
 
 const HOUR = 3600_000
 const local = (y, mo, d, h = 0, mi = 0) => new Date(y, mo - 1, d, h, mi)
@@ -218,4 +237,55 @@ test('soonest ignores routines that are off', () => {
   const off = routine({ id: 'off', enabled: false, nextRunAt: null })
   assert.equal(soonest([a, off, b]).id, 'b')
   assert.equal(soonest([off]), null)
+})
+
+test('every schedule example the tools teach parses, and daily 12 AM is the first', () => {
+  for (const example of SCHEDULE_EXAMPLES) assert.equal(ScheduleSchema.safeParse(example).success, true, JSON.stringify(example))
+  assert.deepEqual(SCHEDULE_EXAMPLES[0], { kind: 'daily', time: '00:00' })
+  assert.equal(scheduleWords(SCHEDULE_EXAMPLES[0]), 'Every day at 12:00 AM')
+  assert.deepEqual(new Set(SCHEDULE_EXAMPLES.map((s) => s.kind)), new Set(['daily', 'weekdays', 'weekly', 'every']))
+})
+
+test('a tool-shaped create input parses like the API body', () => {
+  const input = { name: ' Nightly sync ', prompt: 'Sync the tracker.', schedule: { kind: 'daily', time: '00:00' } }
+  assert.equal(RoutineInputSchema.parse(input).name, 'Nightly sync')
+  assert.equal(RoutineInputSchema.safeParse({ ...input, schedule: { kind: 'daily', time: '24:00' } }).success, false)
+  assert.equal(RoutinePatchSchema.safeParse({ enabled: false }).success, true)
+  assert.equal(RoutinePatchSchema.strict().safeParse({ botId: 'other' }).success, false)
+})
+
+test('newRoutine is enabled with its first run after now', () => {
+  const now = local(2026, 11, 18, 10)
+  const r = newRoutine('r9', 'research', { name: 'Nightly', prompt: 'Go.', schedule: { kind: 'daily', time: '00:00' } }, now)
+  assert.equal(r.enabled, true)
+  assert.equal(r.lastRunAt, null)
+  assert.equal(r.createdAt, now.toISOString())
+  assert.deepEqual(parts(new Date(r.nextRunAt)), [2026, 11, 19, 0, 0])
+  assert.equal(runWords(new Date(r.nextRunAt), now), 'tomorrow 12:00 AM')
+})
+
+test('newRoutine keeps only the routine fields of its input', () => {
+  const input = { botId: 'other', name: 'N', prompt: 'P', schedule: { kind: 'every', hours: 2 } }
+  assert.equal(newRoutine('r9', 'research', input, local(2026, 11, 18, 10)).botId, 'research')
+})
+
+test('patchRoutine recomputes the next run, and turning off clears it', () => {
+  const now = local(2026, 11, 18, 10)
+  const moved = patchRoutine(routine(), { schedule: { kind: 'daily', time: '12:30' } }, now)
+  assert.deepEqual(parts(new Date(moved.nextRunAt)), [2026, 11, 18, 12, 30])
+  const off = patchRoutine(routine(), { enabled: false }, now)
+  assert.equal(off.nextRunAt, null)
+  assert.equal(patchRoutine(off, { enabled: true }, now).nextRunAt, local(2026, 11, 18, 18).toISOString())
+  assert.equal(patchRoutine(routine(), { name: 'Renamed' }, now).prompt, 'Summarize today.')
+})
+
+test('an employee manages its own routines; the Chief also manages its team', () => {
+  const none = new Set()
+  assert.equal(mayManage('research', none, 'research'), true)
+  assert.equal(mayManage('research', none, 'job-hunt'), false)
+  assert.equal(mayManage('research', none, 'chief'), false)
+  const team = new Set(['research', 'job-hunt'])
+  assert.equal(mayManage('chief', team, 'chief'), true)
+  assert.equal(mayManage('chief', team, 'job-hunt'), true)
+  assert.equal(mayManage('chief', team, 'outsider'), false)
 })

@@ -18,6 +18,7 @@ type Props = {
   // Bumped with a new n on every request, so asking twice scrolls twice.
   focus: { target: PanelTarget; n: number }
   activity: string
+  routinesRev: number
   now: number
   shareText: () => string
   onClose: () => void
@@ -186,7 +187,7 @@ export function Details(props: Props) {
       <div className="panelScroll" ref={scroller}>
         <Screen bot={bot} activity={props.activity} now={props.now} />
 
-        <Routines bot={bot} />
+        <Routines bot={bot} rev={props.routinesRev} />
 
         <section className="panelSection" ref={jobRef} aria-labelledby="job-label">
           <div className="sectionHead">

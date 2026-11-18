@@ -1,9 +1,8 @@
-import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
 import { error, findBot, parseBody } from '@/lib/http'
-import { RoutineInputSchema, upcoming, type Routine } from '@/lib/routines'
+import { RoutineInputSchema } from '@/lib/routines'
 import { ensureScheduler } from '@/lib/scheduler'
-import { readRoutines, saveRoutines } from '@/lib/store'
+import { createRoutine, readRoutines } from '@/lib/store'
 
 export const dynamic = 'force-dynamic'
 
@@ -24,20 +23,5 @@ export async function POST(req: Request) {
   if (body instanceof Response) return body
   const bot = findBot(body.botId)
   if (bot instanceof Response) return bot
-  const now = new Date()
-  const base: Routine = {
-    id: randomUUID(),
-    botId: bot.id,
-    name: body.name,
-    prompt: body.prompt,
-    schedule: body.schedule,
-    enabled: true,
-    createdAt: now.toISOString(),
-    lastRunAt: null,
-    nextRunAt: null,
-    lastOutcome: null,
-  }
-  const routine = { ...base, nextRunAt: upcoming(base, now) }
-  saveRoutines([...readRoutines(), routine])
-  return Response.json(routine, { status: 201 })
+  return Response.json(createRoutine(bot.id, body), { status: 201 })
 }

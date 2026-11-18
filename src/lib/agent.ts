@@ -23,10 +23,11 @@ import { classify } from './classify'
 import { isImageMime, promptText, type Attachment } from './context'
 import { CARD_MAX, detailInput, detailOutput, truncate } from './detail'
 import { sdkEnv } from './env'
-import { actorOf, guardToolCall, HIRE, isDelegation, REMEMBER } from './guard'
+import { actorOf, guardToolCall, HIRE, isDelegation, REMEMBER, ROUTINE_TOOLS } from './guard'
 import { plansDir, readFileInside } from './folders'
 import { BotNameSchema } from './names'
 import { parseQuestions } from './questions'
+import { ROUTINE_ACTIVITY, routineTools } from './routineTools'
 import { aliasOf, decideRoute, isNewTask, loadRoleTables, MODEL_LABELS, resolveModel, type Alias, type Route } from './router'
 import {
   AsyncQueue,
@@ -65,7 +66,10 @@ function employeeBlock(bot: Bot, opts: { canRemember: boolean; team?: Bot[] }): 
     `Your working folder is ${bot.folder}.`,
   ]
   if (opts.canRemember) {
-    lines.push(`When the user tells you a durable fact or preference, save it with the ${REMEMBER} tool.`)
+    lines.push(
+      `When the user tells you a durable fact or preference, save it with the ${REMEMBER} tool.`,
+      'To automate recurring work, create a will-bot routine with create_routine. Routines persist, show in the user\'s panel, and run while will-bot is open. Never use CronCreate or ScheduleWakeup.',
+    )
   }
   if (opts.canRemember && bot.hire) {
     lines.push(
@@ -118,7 +122,7 @@ function abortSignalOf(extra: unknown): AbortSignal | undefined {
 
 // confirm shows the hire as an approval card. The handler asks, not the
 // permission layer, because auto mode's classifier may answer an 'ask' itself.
-function willbotServer(bot: Bot, confirm: (h: Hire, signal: AbortSignal) => Promise<PermissionResult>) {
+function willbotServer(bot: Bot, team: ReadonlySet<BotId>, confirm: (h: Hire, signal: AbortSignal) => Promise<PermissionResult>) {
   const hire = tool(
     'hire',
     'Add a new employee to will-bot. The user confirms it first; then it appears in the roster with its own session, memory and working folder.',
@@ -153,6 +157,7 @@ function willbotServer(bot: Bot, confirm: (h: Hire, signal: AbortSignal) => Prom
         },
       ),
       ...(bot.hire ? [hire] : []),
+      ...routineTools(bot, team),
     ],
   })
 }
@@ -206,6 +211,7 @@ const ACTIVITY: Record<string, (input: Record<string, unknown>, nameOf: (id: str
   ExitPlanMode: () => 'Shared a plan',
   [REMEMBER]: (i) => `Remembered: ${short(str(i, 'note'), 60)}`,
   [HIRE]: (i) => `Asked to hire ${short(str(i, 'name'), 40)}`,
+  ...ROUTINE_ACTIVITY,
 }
 
 // mcp__claude_ai_Google_Drive__search_files -> "Google Drive: search_files"
@@ -350,8 +356,11 @@ function open(bot: Bot, model: Alias | null, resume = true): LiveSession {
     if (reason) {
       return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: reason } }
     }
-    // The hire tool shows its own card; a second one from Claude Code would ask twice.
-    if (call.toolName === HIRE) return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'allow' } }
+    // The hire tool shows its own card; a second one from Claude Code would ask
+    // twice. Routines need no card: the user asks employees to automate things.
+    if (call.toolName === HIRE || ROUTINE_TOOLS.has(call.toolName)) {
+      return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'allow' } }
+    }
     return {}
   }
 
@@ -427,7 +436,7 @@ function open(bot: Bot, model: Alias | null, resume = true): LiveSession {
     additionalDirectories,
     resume: (resume && chat.sessionId) || undefined,
     model: model ?? bot.model ?? undefined,
-    mcpServers: { willbot: willbotServer(bot, confirmHire), ...(bot.browser ? { playwright: playwright(cwd) } : {}) },
+    mcpServers: { willbot: willbotServer(bot, team, confirmHire), ...(bot.browser ? { playwright: playwright(cwd) } : {}) },
     agents: teamBots.length ? agentDefinitions(teamBots) : undefined,
     hooks: { PreToolUse: [{ hooks: [guard] }] },
     canUseTool,

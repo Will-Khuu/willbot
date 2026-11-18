@@ -3,7 +3,7 @@ import path from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { lastLine, lastReplyAt, type LastLine } from './chatlog'
 import { parseMemory, serializeMemory, oneLine, today } from './memory'
-import { RoutinesFileSchema, type Routine } from './routines'
+import { newRoutine, patchRoutine, RoutinesFileSchema, type Routine, type RoutineInput, type RoutinePatch } from './routines'
 import {
   BotsFileSchema,
   ChatSchema,
@@ -230,4 +230,27 @@ export function readRoutines(): Routine[] {
 
 export function saveRoutines(routines: Routine[]): void {
   writeAtomic(ROUTINES_FILE, JSON.stringify(routines, null, 2) + '\n')
+}
+
+export function createRoutine(botId: BotId, input: RoutineInput, now: Date = new Date()): Routine {
+  const routine = newRoutine(randomUUID(), botId, input, now)
+  saveRoutines([...readRoutines(), routine])
+  return routine
+}
+
+export function updateRoutine(id: string, patch: RoutinePatch, now: Date = new Date()): Routine | null {
+  const routines = readRoutines()
+  const routine = routines.find((r) => r.id === id)
+  if (!routine) return null
+  const updated = patchRoutine(routine, patch, now)
+  saveRoutines(routines.map((r) => (r.id === id ? updated : r)))
+  return updated
+}
+
+export function deleteRoutine(id: string): Routine | null {
+  const routines = readRoutines()
+  const routine = routines.find((r) => r.id === id)
+  if (!routine) return null
+  saveRoutines(routines.filter((r) => r.id !== id))
+  return routine
 }

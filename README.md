@@ -23,7 +23,7 @@ Other scripts:
 
 - `npm run typecheck` runs `tsc --noEmit`.
 - `npm run build` builds for production. `npm start` serves the build on 127.0.0.1.
-- `npm test` checks the take-over rules, the session state machine, question answer validation, the model router, the task list, activity detail truncation, plan usage parsing, routine scheduling, attachment names and path checks, the file search filter and score, and extra folder validation.
+- `npm test` checks the take-over rules, the session state machine, question answer validation, the model router, the task list, activity detail truncation, plan usage parsing, routine scheduling and ownership, attachment names and path checks, the file search filter and score, and extra folder validation.
 
 ## Starter employees
 
@@ -96,6 +96,8 @@ A routine is a saved message that will-bot sends to an employee on a schedule. A
 - **Skips.** A routine does not run while you have taken over the employee, while the employee is working for the Chief, while a plan limit with a known reset time holds, or while a billing variable is set. The row says why, and the routine waits for its next time.
 - **Run now** sends it at once through the same checks and leaves the schedule as it was. The switch turns a routine off without deleting it.
 - **Roster.** An idle employee with a routine on shows the next one, for example "Idle · next: Evening summary 6 PM".
+- **Employees make their own.** Ask an employee to automate something and it creates the routine itself with its `list_routines`, `create_routine`, `update_routine` and `delete_routine` tools, without an approval card. The chat logs each change, for example "Scheduled 'Email-to-tracker sync' · Every day at 12:00 AM", and the panel and roster update. An employee manages only its own routines; the Chief can also manage its teammates'. Subagents cannot use these tools.
+- **Session schedules are redirected.** Claude Code's own `CronCreate`, `CronDelete`, `CronList` and `ScheduleWakeup` live inside one session, and will-bot closes idle sessions, so those jobs would be lost. will-bot denies them and points the employee to its routine tools instead.
 
 ## Activity details
 

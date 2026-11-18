@@ -18,12 +18,24 @@ export const ScheduleSchema = z.discriminatedUnion('kind', [
 ])
 export type Schedule = z.infer<typeof ScheduleSchema>
 
+// One of each kind, for teaching the shape to the model.
+export const SCHEDULE_EXAMPLES = [
+  { kind: 'daily', time: '00:00' },
+  { kind: 'weekdays', time: '09:00' },
+  { kind: 'weekly', day: 1, time: '08:30' },
+  { kind: 'every', hours: 2 },
+] as const satisfies readonly Schedule[]
+
 // What the user sets; the rest of a Routine is bookkeeping.
 export const RoutineInputSchema = z.object({
   name: z.string().trim().min(1, 'Name is required.').max(60, 'Keep the name under 60 characters.'),
   prompt: z.string().trim().min(1, 'Say what it should do.').max(4000, 'Keep it under 4,000 characters.'),
   schedule: ScheduleSchema,
 })
+export type RoutineInput = z.infer<typeof RoutineInputSchema>
+
+export const RoutinePatchSchema = RoutineInputSchema.partial().extend({ enabled: z.boolean().optional() })
+export type RoutinePatch = z.infer<typeof RoutinePatchSchema>
 
 export const OUTCOMES = ['ran', 'skipped_paused', 'skipped_limit', 'skipped_busy', 'skipped_billing', 'missed'] as const
 export type Outcome = (typeof OUTCOMES)[number]
@@ -91,11 +103,14 @@ export function describe(schedule: Schedule): string {
 
 const PLURAL_DAYS = ['Sundays', 'Mondays', 'Tuesdays', 'Wednesdays', 'Thursdays', 'Fridays', 'Saturdays'] as const
 
+function clockWords(hour: number, minute: number): string {
+  return `${hour % 12 || 12}:${String(minute).padStart(2, '0')} ${hour < 12 ? 'AM' : 'PM'}`
+}
+
 // "Every day at 8:00 AM", "Weekdays at 6:00 PM", "Mondays at 9:30 AM", "Every 2 hours".
 export function scheduleWords(schedule: Schedule): string {
   if (schedule.kind === 'every') return describe(schedule)
-  const [hour, minute] = clock(schedule.time)
-  const at = `${hour % 12 || 12}:${String(minute).padStart(2, '0')} ${hour < 12 ? 'AM' : 'PM'}`
+  const at = clockWords(...clock(schedule.time))
   if (schedule.kind === 'daily') return `Every day at ${at}`
   if (schedule.kind === 'weekdays') return `Weekdays at ${at}`
   return `${PLURAL_DAYS[schedule.day]} at ${at}`
@@ -112,6 +127,11 @@ export function dayWord(at: Date, now: Date): string {
   if (days === 1) return 'tomorrow'
   if (days > 1 && days < 7) return DAY_NAMES[at.getDay()]!
   return at.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+}
+
+// "tomorrow 12:00 AM", "today 6:30 PM", "Mon 9:00 AM".
+export function runWords(at: Date, now: Date): string {
+  return `${dayWord(at, now)} ${clockWords(at.getHours(), at.getMinutes())}`
 }
 
 // "Evening summary 6 PM", or "Weekly plan Mon 8 AM" when not today.
@@ -178,4 +198,30 @@ export const OUTCOME_TEXT: Record<Exclude<Outcome, 'ran'>, string> = {
   skipped_busy: 'Skipped: it was working for the Chief',
   skipped_billing: 'Skipped: an API key was set',
   missed: 'Missed while will-bot was closed',
+}
+
+export function newRoutine(id: string, botId: string, input: RoutineInput, now: Date): Routine {
+  const base: Routine = {
+    id,
+    botId,
+    name: input.name,
+    prompt: input.prompt,
+    schedule: input.schedule,
+    enabled: true,
+    createdAt: now.toISOString(),
+    lastRunAt: null,
+    nextRunAt: null,
+    lastOutcome: null,
+  }
+  return { ...base, nextRunAt: upcoming(base, now) }
+}
+
+export function patchRoutine(routine: Routine, patch: RoutinePatch, now: Date): Routine {
+  const merged = { ...routine, ...patch }
+  return { ...merged, nextRunAt: upcoming(merged, now) }
+}
+
+// An employee manages its own routines; the Chief also manages its team's.
+export function mayManage(ownerId: string, team: ReadonlySet<string>, botId: string): boolean {
+  return botId === ownerId || team.has(botId)
 }

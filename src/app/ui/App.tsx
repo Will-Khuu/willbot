@@ -40,6 +40,8 @@ export function App() {
   const [user, setUser] = useState<string | null>(null)
   const [usage, setUsage] = useState<Usage | null>(null)
   const [now, setNow] = useState(() => Date.now())
+  // Bumped when an employee changes routines, so the panel reloads them.
+  const [routinesRev, setRoutinesRev] = useState(0)
   const selectedRef = useRef(selectedId)
   selectedRef.current = selectedId
   // Item id -> the change number of its last live update (stream or a click here).
@@ -139,6 +141,11 @@ export function App() {
         void refreshBots()
         void refreshMemory(id)
         void refreshUsage()
+        return
+      }
+      if (e.type === 'routines') {
+        setRoutinesRev((n) => n + 1)
+        void refreshBots()
         return
       }
       changes.current.at.set(e.item.id, ++changes.current.n)
@@ -272,6 +279,7 @@ export function App() {
             open={panelOpen}
             focus={panelFocus}
             activity={activity}
+            routinesRev={routinesRev}
             now={now}
             shareText={() => chatMarkdown(bot.name, items ?? [], nameOf)}
             onClose={() => setPanelOpen(false)}

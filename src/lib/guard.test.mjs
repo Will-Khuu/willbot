@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { guardToolCall, HIRE, REMEMBER } from './guard.ts'
+import { CREATE_ROUTINE, DELETE_ROUTINE, guardToolCall, HIRE, LIST_ROUTINES, REMEMBER, SESSION_SCHEDULER_REASON, UPDATE_ROUTINE } from './guard.ts'
 
 const employees = {
   chief: { name: 'Chief of Staff', paused: false, hire: true },
@@ -64,4 +64,28 @@ test('hire reads the switch on every call', () => {
   assert.equal(guardToolCall(call({ toolName: HIRE }), liveLookup), null)
   live.chief.hire = false
   assert.match(guardToolCall(call({ toolName: HIRE }), liveLookup), /turned off/)
+})
+
+test("Claude Code's session schedulers are redirected to routines for every employee", () => {
+  for (const toolName of ['CronCreate', 'CronDelete', 'CronList', 'ScheduleWakeup']) {
+    assert.equal(guardToolCall(call({ toolName }), lookup), SESSION_SCHEDULER_REASON, toolName)
+    assert.equal(guardToolCall(call({ ownerId: 'research', team: new Set(), toolName }), lookup), SESSION_SCHEDULER_REASON, toolName)
+    assert.equal(guardToolCall(call({ toolName, agentId: 'a1', agentType: 'research' }), lookup), SESSION_SCHEDULER_REASON, toolName)
+  }
+  assert.match(SESSION_SCHEDULER_REASON, /mcp__willbot__create_routine/)
+  assert.equal(guardToolCall(call({ toolName: 'RemoteTrigger' }), lookup), null)
+})
+
+test('routine tools are for the session owner, never a subagent', () => {
+  for (const toolName of [LIST_ROUTINES, CREATE_ROUTINE, UPDATE_ROUTINE, DELETE_ROUTINE]) {
+    assert.equal(guardToolCall(call({ toolName }), lookup), null, toolName)
+    assert.equal(guardToolCall(call({ ownerId: 'research', team: new Set(), toolName }), lookup), null, toolName)
+    assert.match(guardToolCall(call({ toolName, agentId: 'a1', agentType: 'general-purpose' }), lookup), /not a subagent/, toolName)
+    assert.match(guardToolCall(call({ toolName, agentId: 'a1', agentType: 'research' }), lookup), /not a subagent/, toolName)
+  }
+})
+
+test('a paused or deleted employee cannot manage routines', () => {
+  assert.match(guardToolCall(call({ ownerId: 'builder', team: new Set(), toolName: CREATE_ROUTINE }), lookup), /paused/)
+  assert.match(guardToolCall(call({ ownerId: 'nobody', team: new Set(), toolName: CREATE_ROUTINE }), lookup), /deleted/)
 })

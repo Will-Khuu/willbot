@@ -243,7 +243,7 @@ function RoutineForm(props: { routine: Routine | null; onSave: (input: RoutineIn
   )
 }
 
-export function Routines({ bot }: { bot: BotView }) {
+export function Routines({ bot, rev }: { bot: BotView; rev: number }) {
   const [routines, setRoutines] = useState<Routine[] | null>(null)
   // 'new' for the add form, a routine id while editing it.
   const [editing, setEditing] = useState<string | null>(null)
@@ -263,12 +263,13 @@ export function Routines({ bot }: { bot: BotView }) {
     setError(null)
   }, [bot.id])
 
-  // A run changes the status, and the schedule moves on its own.
+  // A run changes the status, an employee's routine tools bump rev, and the
+  // schedule moves on its own.
   useEffect(() => {
     void refresh()
     const t = setInterval(refresh, 30_000)
     return () => clearInterval(t)
-  }, [refresh, bot.status])
+  }, [refresh, bot.status, rev])
 
   const act = async (fn: () => Promise<unknown>) => {
     setError(null)
