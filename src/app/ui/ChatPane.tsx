@@ -1,10 +1,10 @@
 'use client'
 
-import { useEffect, useRef, useState, type FormEvent } from 'react'
-import { MODEL_LABELS, routeLine } from '@/lib/router'
+import { useEffect, useRef, useState, type DragEvent, type FormEvent } from 'react'
+import { isImageMime, type Attachment } from '@/lib/context'
+import { routeLine } from '@/lib/router'
 import { taskCounts, type TaskStatus } from '@/lib/tasks'
 import {
-  MODELS,
   type ActivityItem,
   type Answers,
   type ApprovalItem,
@@ -14,6 +14,8 @@ import {
   type QuestionItem,
   type TasksItem,
 } from '@/lib/types'
+import { attachmentUrl } from './api'
+import { Composer } from './Composer'
 import { initialsOf, timeOf, tintOf } from './look'
 
 type Row =
@@ -98,6 +100,26 @@ function TaskCard({ item, working }: { item: TasksItem; working: boolean }) {
         </ul>
       )}
     </section>
+  )
+}
+
+function Attachments({ botId, attachments }: { botId: string; attachments: Attachment[] }) {
+  return (
+    <ul className="sentAttachments" aria-label="Attachments">
+      {attachments.map((a) =>
+        isImageMime(a.mime) ? (
+          <li key={a.path}>
+            <a href={attachmentUrl(botId, a.path)} target="_blank" rel="noreferrer" title={a.path}>
+              <img className="thumb" src={attachmentUrl(botId, a.path)} alt={a.name} loading="lazy" />
+            </a>
+          </li>
+        ) : (
+          <li key={a.path} className="chip fileChip" title={a.path}>
+            {a.name}
+          </li>
+        ),
+      )}
+    </ul>
   )
 }
 
@@ -196,7 +218,7 @@ type Props = {
   // The plan's usage limit; blocks is false when its reset time is unknown.
   limit: { text: string; blocks: boolean } | null
   detailsOpen: boolean
-  onSend: (text: string, model: NonNullable<Model> | null) => Promise<void>
+  onSend: (text: string, attachments: string[], model: NonNullable<Model> | null) => Promise<void>
   onStop: () => Promise<void>
   onTakeOver: () => Promise<void>
   onDecide: (id: string, decision: 'allow' | 'deny') => Promise<void>
@@ -206,8 +228,8 @@ type Props = {
 
 export function ChatPane(props: Props) {
   const { bot, bots, items, working, blocked, limit } = props
-  const [draft, setDraft] = useState('')
-  const [pick, setPick] = useState<NonNullable<Model> | null>(null)
+  const [dropped, setDropped] = useState<{ files: File[]; n: number } | null>(null)
+  const [dragging, setDragging] = useState(false)
   const scroller = useRef<HTMLDivElement>(null)
   const nameOf = (id: string) => bots.find((b) => b.id === id)?.name ?? id
   const tasks = items.findLast((i): i is TasksItem => i.kind === 'tasks')
@@ -220,23 +242,26 @@ export function ChatPane(props: Props) {
   // Like Claude Code, a message sent mid-turn joins the session's queue. Only
   // an employee working inside another's session cannot take messages.
   const closed = bot.paused || blocked || bot.delegatedBy !== null
-  const submit = (e: FormEvent) => {
+
+  const hasFiles = (e: DragEvent) => e.dataTransfer.types.includes('Files')
+  const onDragOver = (e: DragEvent) => {
+    if (!hasFiles(e) || closed) return
     e.preventDefault()
-    const text = draft.trim()
-    if (!text || closed || limit?.blocks) return
-    setDraft('')
-    setPick(null)
-    void props.onSend(text, pick)
+    e.dataTransfer.dropEffect = 'copy'
+    setDragging(true)
+  }
+  const onDragLeave = (e: DragEvent) => {
+    if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDragging(false)
+  }
+  const onDrop = (e: DragEvent) => {
+    setDragging(false)
+    if (!hasFiles(e) || closed) return
+    e.preventDefault()
+    setDropped((cur) => ({ files: [...e.dataTransfer.files], n: (cur?.n ?? 0) + 1 }))
   }
 
-  const placeholder = bot.paused
-    ? `Hand back to message ${bot.name}`
-    : bot.delegatedBy
-      ? `${bot.name} is ${bot.statusLine.toLowerCase()}…`
-      : `Message ${bot.name}`
-
   return (
-    <main className="chat">
+    <main className={`chat${dragging ? ' dropping' : ''}`} onDragOver={onDragOver} onDragLeave={onDragLeave} onDrop={onDrop}>
       <header className="chatHead">
         <div className="chatTitle">
           <h2 className="chatName">{bot.name}</h2>
@@ -296,7 +321,8 @@ export function ChatPane(props: Props) {
             case 'user':
               return (
                 <div key={item.id} className="userRow">
-                  <div className="userBubble">{item.text}</div>
+                  {item.attachments && <Attachments botId={bot.id} attachments={item.attachments} />}
+                  {item.text && <div className="userBubble">{item.text}</div>}
                 </div>
               )
             case 'assistant':
@@ -377,45 +403,7 @@ export function ChatPane(props: Props) {
 
       {tasks && <TaskCard key={tasks.id} item={tasks} working={working} />}
 
-      <form className="composer" onSubmit={submit}>
-        <label htmlFor="composer" className="visuallyHidden">
-          Message {bot.name}
-        </label>
-        <input
-          id="composer"
-          className="composerInput"
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          placeholder={placeholder}
-          disabled={closed}
-          autoComplete="off"
-        />
-        <label htmlFor="composer-model" className="visuallyHidden">
-          Model
-        </label>
-        <select
-          id="composer-model"
-          className="composerModel"
-          value={pick ?? ''}
-          disabled={closed}
-          onChange={(e) => setPick(e.target.value === '' ? null : (e.target.value as NonNullable<Model>))}
-        >
-          <option value="">Auto</option>
-          {MODELS.map((m) => (
-            <option key={m} value={m}>
-              {MODEL_LABELS[m]}
-            </option>
-          ))}
-        </select>
-        <button
-          className="sendButton"
-          type="submit"
-          disabled={!draft.trim() || closed || limit?.blocks}
-          title={limit?.blocks ? limit.text : undefined}
-        >
-          Send
-        </button>
-      </form>
+      <Composer bot={bot} closed={closed} limit={limit} dropped={dropped} onSend={props.onSend} />
     </main>
   )
 }

@@ -115,10 +115,10 @@ export function App() {
     return () => source.close()
   }, [selectedId, refreshBots, refreshChat, refreshMemory, refreshUsage])
 
-  const send = async (text: string, model: NonNullable<Model> | null) => {
+  const send = async (text: string, attachments: string[], model: NonNullable<Model> | null) => {
     const id = selectedId
     try {
-      await api.send(id, text, model)
+      await api.send(id, text, attachments, model)
     } catch (e) {
       if (selectedRef.current === id) setItems((cur) => [...(cur ?? []), localError((e as Error).message)])
     }
@@ -152,7 +152,7 @@ export function App() {
     await refreshChat(selectedId)
   }
 
-  const patch = (body: { folder?: string; model?: Model; browser?: boolean; router?: boolean; hire?: boolean }) => async () => {
+  const patch = (body: { folder?: string; extraFolders?: string[]; model?: Model; browser?: boolean; router?: boolean; hire?: boolean }) => async () => {
     await api.patchBot(selectedId, body)
     await refreshBots()
   }
@@ -223,6 +223,7 @@ export function App() {
             }}
             onSaveMemory={saveMemory}
             onSaveFolder={(folder) => patch({ folder })()}
+            onSaveExtraFolders={(extraFolders) => patch({ extraFolders })()}
             onSaveModel={(model) => run(patch({ model }))()}
             onSaveBrowser={(browser) => run(patch({ browser }))()}
             onSaveRouter={(router) => run(patch({ router }))()}

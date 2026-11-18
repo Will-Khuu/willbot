@@ -404,7 +404,9 @@ p {
 
 .userRow {
   display: flex;
-  justify-content: flex-end;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
 }
 
 .userBubble {
@@ -667,9 +669,22 @@ summary.approvalDetail {
   padding: 16px 24px 20px;
   border-top: 1px solid var(--line);
   display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: var(--chat);
+}
+
+.composerRow {
+  display: flex;
   gap: 10px;
   align-items: center;
-  background: var(--chat);
+}
+
+.composerField {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
 }
 
 .composerInput {
@@ -1231,4 +1246,182 @@ summary.approvalDetail {
   .usageRing {
     display: block;
   }
+}
+
+.attachButton {
+  flex: none;
+  width: 48px;
+  height: 48px;
+  display: grid;
+  place-items: center;
+  border-radius: 12px;
+  border: 1px solid var(--control-line);
+  background: #ffffff;
+  color: var(--body-ink);
+}
+
+.attachButton:hover:not(:disabled) {
+  border-color: var(--ink);
+  color: var(--ink);
+}
+
+.attachButton:disabled {
+  background: var(--ground);
+  color: var(--muted);
+}
+
+.pendingRow {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.pendingList,
+.sentAttachments,
+.folderList {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.pendingList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.pendingChip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding-left: 12px;
+  border-radius: 999px;
+  border: 1px solid var(--control-line);
+  background: #ffffff;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.pendingChip.failed {
+  border-color: var(--error-line);
+  background: var(--error-bg);
+  color: var(--error-ink);
+}
+
+.pendingName {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pendingState {
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.pendingChip.failed .pendingState {
+  color: inherit;
+}
+
+.pendingRemove {
+  flex: none;
+  width: 44px;
+  height: 44px;
+  margin: -8px 0;
+  border: none;
+  background: transparent;
+  font-size: 18px;
+  line-height: 1;
+  color: inherit;
+}
+
+.mentionList {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(100% + 6px);
+  z-index: 5;
+  max-height: 320px;
+  overflow-y: auto;
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  border-radius: 12px;
+  border: 1px solid var(--line-strong);
+  background: #ffffff;
+  box-shadow: 0 8px 24px rgba(28, 27, 25, 0.12);
+}
+
+.mentionOption {
+  min-height: 44px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.mentionOption[aria-selected='true'] {
+  background: var(--bubble);
+}
+
+.mentionName {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.mentionPath {
+  font-size: 12px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sentAttachments {
+  max-width: 560px;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.thumb {
+  display: block;
+  max-width: 220px;
+  max-height: 160px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  object-fit: cover;
+  background: var(--bubble);
+}
+
+.fileChip {
+  overflow-wrap: anywhere;
+}
+
+.chat.dropping {
+  outline: 2px dashed var(--accent);
+  outline-offset: -8px;
+}
+
+.folderItem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-bottom: 1px solid var(--line);
+}
+
+.folderPath {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.alignStart {
+  align-self: flex-start;
 }

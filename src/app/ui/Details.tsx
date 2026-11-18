@@ -14,6 +14,7 @@ type Props = {
   onSaveJob: (job: string) => Promise<void>
   onSaveMemory: (entries: MemoryEntry[]) => Promise<void>
   onSaveFolder: (folder: string) => Promise<void>
+  onSaveExtraFolders: (folders: string[]) => Promise<void>
   onSaveModel: (model: Model) => Promise<void>
   onSaveBrowser: (browser: boolean) => Promise<void>
   onSaveRouter: (router: boolean) => Promise<void>
@@ -63,15 +64,37 @@ export function Details(props: Props) {
     api.capabilities().then(setCaps, (e: Error) => setCaps({ error: e.message }))
   }, [caps])
 
-  const saveFolder = async (e: FormEvent) => {
-    e.preventDefault()
+  const tryFolders = async (fn: () => Promise<void>) => {
     try {
-      await props.onSaveFolder(folder.trim())
+      await fn()
       setFolderError(null)
     } catch (err) {
       setFolderError((err as Error).message)
     }
   }
+
+  const saveFolder = (e: FormEvent) => {
+    e.preventDefault()
+    void tryFolders(() => props.onSaveFolder(folder.trim()))
+  }
+
+  // Resolves to null when the user cancels the dialog.
+  const pickFolder = async (): Promise<string | null> => {
+    const picked = await api.pickFolder(bot.id)
+    return 'path' in picked ? picked.path : null
+  }
+
+  const chooseFolder = () =>
+    tryFolders(async () => {
+      const chosen = await pickFolder()
+      if (chosen && chosen !== bot.folder) await props.onSaveFolder(chosen)
+    })
+
+  const addExtraFolder = () =>
+    tryFolders(async () => {
+      const chosen = await pickFolder()
+      if (chosen && !bot.extraFolders.includes(chosen)) await props.onSaveExtraFolders([...bot.extraFolders, chosen])
+    })
 
   const saveJob = async (e: FormEvent) => {
     e.preventDefault()
@@ -162,9 +185,40 @@ export function Details(props: Props) {
             <button className="secondaryButton" type="submit" disabled={!folder.trim() || folder.trim() === bot.folder}>
               Save
             </button>
+            <button className="secondaryButton" type="button" onClick={() => void chooseFolder()}>
+              Choose folder…
+            </button>
           </div>
-          {folderError && <p className="formError">{folderError}</p>}
         </form>
+        <div className="stack">
+          <h4 className="fieldLabel" id="extra-folders-label">
+            Also has access to
+          </h4>
+          {bot.extraFolders.length > 0 ? (
+            <ul className="folderList" aria-labelledby="extra-folders-label">
+              {bot.extraFolders.map((f) => (
+                <li key={f} className="folderItem">
+                  <span className="folderPath" title={f}>
+                    {f}
+                  </span>
+                  <button
+                    className="linkButton"
+                    aria-label={`Remove ${f}`}
+                    onClick={() => void tryFolders(() => props.onSaveExtraFolders(bot.extraFolders.filter((x) => x !== f)))}
+                  >
+                    Remove
+                  </button>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="mutedText">Only the working folder.</p>
+          )}
+          <button className="secondaryButton alignStart" type="button" onClick={() => void addExtraFolder()}>
+            Add folder…
+          </button>
+        </div>
+        {folderError && <p className="formError">{folderError}</p>}
         <label className="fieldLabel" htmlFor="model-field">
           Model
         </label>

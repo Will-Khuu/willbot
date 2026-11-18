@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { AttachmentSchema } from './context'
 import { QuestionSchema } from './questions'
 import { TASK_KINDS } from './router'
 import { TaskEntrySchema } from './tasks'
@@ -18,6 +19,8 @@ export const StoredBotSchema = z.object({
   name: z.string(),
   job: z.string(),
   folder: z.string().optional(),
+  // Absolute folders the session may also use, beside the working folder.
+  extraFolders: z.array(z.string()).default([]),
   model: ModelSchema.default(null),
   browser: z.boolean().optional(),
   router: z.boolean().optional(),
@@ -36,7 +39,13 @@ export const ApprovalStateSchema = z.enum(['pending', 'allowed', 'denied', 'expi
 export type ApprovalState = z.infer<typeof ApprovalStateSchema>
 
 export const ChatItemSchema = z.discriminatedUnion('kind', [
-  z.object({ kind: z.literal('user'), id: z.string(), text: z.string(), at: z.string() }),
+  z.object({
+    kind: z.literal('user'),
+    id: z.string(),
+    text: z.string(),
+    attachments: z.array(AttachmentSchema).optional(),
+    at: z.string(),
+  }),
   z.object({ kind: z.literal('assistant'), id: z.string(), botId: z.string(), text: z.string(), at: z.string() }),
   z.object({
     kind: z.literal('activity'),

@@ -23,7 +23,7 @@ Other scripts:
 
 - `npm run typecheck` runs `tsc --noEmit`.
 - `npm run build` builds for production. `npm start` serves the build on 127.0.0.1.
-- `npm test` checks the take-over rules, the session state machine, question answer validation, the model router, the task list, activity detail truncation, plan usage parsing, and routine scheduling.
+- `npm test` checks the take-over rules, the session state machine, question answer validation, the model router, the task list, activity detail truncation, plan usage parsing, routine scheduling, attachment names and path checks, the file search filter and score, and extra folder validation.
 
 ## Starter employees
 
@@ -38,7 +38,8 @@ The first start creates four employees.
 
 Set these in the details panel.
 
-- **Working folder.** The session's working directory. It must be an absolute path to a folder that exists. The default is `data/workspaces/<id>`. Claude Code keeps conversations per folder, so changing it closes the session and starts a new conversation in the new folder.
+- **Working folder.** The session's working directory. Type an absolute path, or use **Choose folder…**. The default is `data/workspaces/<id>`. Claude Code keeps conversations per folder, so changing it closes the session and starts a new conversation in the new folder.
+- **Also has access to.** Extra folders, described under Folders and context.
 - **Model.** Default uses your Claude Code model. Haiku, Sonnet and Opus pick that model. A change applies to the live session at once. With the router on, the field shows Router and is locked.
 - **Pick the model per task (pstack table).** Turns on the model router, described below. Off by default, on for Builder Bot.
 - **Can hire new employees.** Gives the employee a `hire` tool that adds an employee with a name, job, model, browser and router setting. The new employee shows in the roster at once, and the Chief's team includes it. The team still stops at 12. Off by default, on for Dr Egg. A change reopens the session.
@@ -46,6 +47,16 @@ Set these in the details panel.
 - **Job and memory.** Both are part of the prompt. An edit reopens the session: at once if it is idle, else when its turn and background work end.
 
 No turn limit is set, as in a Claude Code session.
+
+## Folders and context
+
+Give an employee folders and files the way you do in a Claude Code desktop session.
+
+- **Folder picker.** **Choose folder…** and **Add folder…** open the macOS folder dialog, starting in the working folder. Cancel leaves everything as it was.
+- **Extra folders.** "Also has access to" lists folders the session can use beside its working folder, as Claude Code's `--add-dir` does. Each must be an absolute path to a folder that exists, up to 20. A change reopens the session like a job edit, and the conversation continues: extra folders do not change the session's project. The Chief also gets every teammate's folders, since teammates run inside its session. A folder deleted later is skipped.
+- **Attachments.** Attach files with the paperclip button, by dropping them on the chat, or by pasting an image. Each shows as a chip above the composer while it uploads; × removes it. Up to 10 files per message, 20 MB each. A file is saved to `<working folder>/.will-bot/attachments/<yyyymmdd-hhmmss>-<name>`, with the name reduced to letters, digits, dots, dashes and underscores. The message tells Claude Code `Attached file: <path>` for each, so it can read any of them. PNG, JPEG, GIF and WebP images also go in as images, which Claude Code scales down as it does for a pasted screenshot.
+- **Sent attachments.** Your message shows images as thumbnails and other files as chips. Thumbnails come only from the employee's current attachments folder, so after a working folder change older ones no longer show.
+- **@-mentions.** Type `@` in the composer to list files from the working folder and extra folders that match what follows it. Arrow keys move, Enter or Tab picks, Escape closes. A pick inserts `@<absolute path>`, quoted if it has spaces, and Claude Code reads that file into the message as it does in a terminal session. The search looks at up to 5,000 entries, nearest first, and skips `node_modules`, `.git`, `.next`, `dist`, `build` and dot-folders, except `.will-bot/attachments`. It shows the best 20 matches: a name that starts with the text, then a name that contains it, then a path that contains it, then the letters in order.
 
 ## Live sessions
 
@@ -117,6 +128,7 @@ Everything is plain files under `./data`:
 - `data/workspaces/<id>/` is each employee's default working folder.
 - `data/usage.json` holds the last plan usage, so a restart still shows it.
 - `data/routines.json` holds every routine with its schedule, next run and last outcome.
+- `<working folder>/.will-bot/attachments/` holds the files you attach. will-bot never deletes them.
 
 ## Safety
 
@@ -126,7 +138,7 @@ Employees run with your Claude Code permissions and settings, exactly like a Cla
 - **Take over.** A PreToolUse hook denies every tool call from a paused or deleted employee, including one working inside the Chief's session. It also denies the Chief's delegation to a paused or deleted employee. Only the employee you are talking to can use `remember` and `hire`; the Chief's teammates cannot write to its memory or hire.
 - **Plan billing only.** Employees refuse to run while `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_BASE_URL`, `CLAUDE_CODE_USE_BEDROCK`, `CLAUDE_CODE_USE_VERTEX`, or `CLAUDE_CODE_USE_FOUNDRY` is set, and the banner names the variable. The app only checks whether these are set and never reads their values.
 - **Environment.** Sessions get the server's environment, as your terminal would give it to `claude`, minus the billing variables and the ones Next and npm set for the server itself (`NODE_ENV`, `NODE_OPTIONS`, `PORT`, `INIT_CWD`, `npm_*`, `NEXT_*`, `__NEXT_*`, `TURBOPACK*`). So SSH agent, proxy and tool variables reach employees, and so does any secret in the shell that starts the server.
-- **Localhost only.** The server binds to 127.0.0.1. API requests with a foreign `Host` or `Origin` header are rejected, which blocks DNS rebinding and cross-site posts. Write requests must be `application/json`.
+- **Localhost only.** The server binds to 127.0.0.1. API requests with a foreign `Host` or `Origin` header are rejected, which blocks DNS rebinding and cross-site posts. Write requests must be `application/json`; attachments upload as base64 in JSON for that reason, and the body limit is raised to 28 MB to fit a 20 MB file.
 
 ## Known limits
 
@@ -138,4 +150,5 @@ Employees run with your Claude Code permissions and settings, exactly like a Cla
 - If a saved Claude Code session disappears from `~/.claude`, resuming fails. Delete that employee's `data/chats/<id>.json` to start fresh.
 - Deleting an employee removes its chat, memory and routines but leaves its working folder on disk.
 - Routines run only while the will-bot server runs. Nothing wakes the computer for them.
+- The folder picker is a macOS dialog on the computer running the server.
 - No group channel or "teach a task" yet.

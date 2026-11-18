@@ -20,6 +20,7 @@ import {
   type SDKUserMessage,
 } from '@anthropic-ai/claude-agent-sdk'
 import { classify } from './classify'
+import { isImageMime, promptText, type Attachment } from './context'
 import { detailInput, detailOutput } from './detail'
 import { sdkEnv } from './env'
 import { actorOf, guardToolCall, HIRE, isDelegation, REMEMBER } from './guard'
@@ -39,6 +40,7 @@ import {
 import { applyTaskCall, parseTaskCall, TASK_TOOLS, type TaskCall, type TaskEntry } from './tasks'
 import { initialSession, isQuiet, isWorking, reduce, shouldRecycle, type SessionEvent } from './session'
 import { appendMemory, createBot, ensureFolder, getBot, listBots, MAX_BOTS, readChat, readMemory, setSessionId, upsertChatItem } from './store'
+import { botFolders } from './workspace'
 import { MODELS, type ActivityItem, type ApprovalItem, type Bot, type BotId, type ChatItem, type Model, type Question, type QuestionItem, type RouteItem, type TasksItem } from './types'
 
 const CONNECT_WAIT_MS = 12_000
@@ -250,14 +252,16 @@ function open(bot: Bot, model: Alias | null): LiveSession {
   const nameOf = (id: string) => names.get(id) ?? id
   const teamBots = bot.builtin === 'chief' ? all.filter((b) => b.id !== bot.id && !b.paused) : []
   const team = new Set(teamBots.map((b) => b.id))
-  const cwd = ensureFolder(bot)
+  const [cwd, ...extraFolders] = botFolders(bot)
+  // Teammates run inside the Chief's session, so it needs their folders too.
   const teamFolders = teamBots.flatMap((b) => {
     try {
-      return [ensureFolder(b)]
+      return botFolders(b)
     } catch {
       return []
     }
   })
+  const additionalDirectories = [...new Set([...extraFolders, ...teamFolders])].filter((f) => f !== cwd)
 
   // tool_use id -> employee making the call, so canUseTool (which only sees a
   // toolUseID) can say who is asking.
@@ -366,7 +370,7 @@ function open(bot: Bot, model: Alias | null): LiveSession {
     },
     settingSources: ['user', 'project', 'local'],
     cwd,
-    additionalDirectories: teamFolders,
+    additionalDirectories,
     resume: chat.sessionId ?? undefined,
     model: model ?? bot.model ?? undefined,
     mcpServers: { willbot: willbotServer(bot), ...(bot.browser ? { playwright: playwright(cwd) } : {}) },
@@ -540,8 +544,26 @@ function open(bot: Bot, model: Alias | null): LiveSession {
   return live
 }
 
-function userMessage(text: string): SDKUserMessage {
-  return { type: 'user', message: { role: 'user', content: text }, parent_tool_use_id: null, session_id: '' }
+type Content = SDKUserMessage['message']['content']
+
+// Claude Code expands @path mentions only in a text block that comes last,
+// as it sends pasted images: so images first, then the text.
+function userContent(text: string, attachments: readonly Attachment[]): Content {
+  if (attachments.length === 0) return text
+  const images = attachments.flatMap((a) => {
+    if (!isImageMime(a.mime)) return []
+    try {
+      const data = fs.readFileSync(a.path).toString('base64')
+      return [{ type: 'image' as const, source: { type: 'base64' as const, media_type: a.mime, data } }]
+    } catch {
+      return []
+    }
+  })
+  return [...images, { type: 'text', text: promptText(text, attachments) }]
+}
+
+function userMessage(text: string, attachments: readonly Attachment[]): SDKUserMessage {
+  return { type: 'user', message: { role: 'user', content: userContent(text, attachments) }, parent_tool_use_id: null, session_id: '' }
 }
 
 function userDefaultModel(): string | null {
@@ -592,12 +614,19 @@ async function chooseRoute(bot: Bot, text: string, pick: Alias | null, prior: Pr
   return decideRoute(current, { by: 'router', classification, resolved }, newTask)
 }
 
-async function deliver(botId: BotId, text: string, pick: Alias | null, prior: Prior, signal: AbortSignal): Promise<void> {
+async function deliver(
+  botId: BotId,
+  text: string,
+  attachments: readonly Attachment[],
+  pick: Alias | null,
+  prior: Prior,
+  signal: AbortSignal,
+): Promise<void> {
   const stopped = () => save(botId, { kind: 'activity', id: newId(), botId, label: 'Stopped.', at: now() })
   let bot = getBot(botId)
   if (!bot || bot.paused) return
   if (signal.aborted) return stopped()
-  const route = await chooseRoute(bot, text, pick, prior, signal)
+  const route = await chooseRoute(bot, promptText(text, attachments), pick, prior, signal)
   if (signal.aborted) return stopped()
   bot = getBot(botId)
   if (!bot || bot.paused) return
@@ -621,28 +650,28 @@ async function deliver(botId: BotId, text: string, pick: Alias | null, prior: Pr
       save(botId, { kind: 'error', id: newId(), text, at: now() })
     }
   }
-  live.inbox.push(userMessage(text))
+  live.inbox.push(userMessage(text, attachments))
   dispatch(live, { type: 'pushed' })
 }
 
 // Opens the employee's session on first use; later messages join it, even
 // mid-turn. Routing happens before the message reaches the session, one
 // message at a time per employee.
-export function sendMessage(bot: Bot, text: string, pick: Alias | null): void {
+export function sendMessage(bot: Bot, text: string, attachments: readonly Attachment[], pick: Alias | null): void {
   const chat = readChat(bot.id)
   const ongoing = chat.sessionId !== null || rt.sessions.has(bot.id) || rt.sending.has(bot.id)
   const prior: Prior = {
     items: chat.items,
     lastUserAt: ongoing ? (chat.items.findLast((i) => i.kind === 'user')?.at ?? null) : null,
   }
-  save(bot.id, { kind: 'user', id: newId(), text, at: now() })
+  save(bot.id, { kind: 'user', id: newId(), text, ...(attachments.length ? { attachments: [...attachments] } : {}), at: now() })
   const ctrl = new AbortController()
   let sending = rt.sending.get(bot.id)
   if (!sending) rt.sending.set(bot.id, (sending = new Set()))
   sending.add(ctrl)
   publish(bot.id, { type: 'status' })
   const tail = (rt.sendTail.get(bot.id) ?? Promise.resolve())
-    .then(() => deliver(bot.id, text, pick, prior, ctrl.signal))
+    .then(() => deliver(bot.id, text, attachments, pick, prior, ctrl.signal))
     .catch((e: unknown) => save(bot.id, { kind: 'error', id: newId(), text: e instanceof Error ? e.message : String(e), at: now() }))
     .finally(() => {
       sending.delete(ctrl)

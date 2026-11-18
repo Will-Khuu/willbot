@@ -21,7 +21,7 @@ function blockersOf(bot: Bot, now: Date): Blockers {
 // The routine line goes in just before the message, like a user sending it.
 function deliver(bot: Bot, routine: Routine, now: Date): void {
   save(bot.id, { kind: 'routine', id: randomUUID(), botId: bot.id, routineId: routine.id, name: routine.name, at: now.toISOString() })
-  sendMessage(bot, routine.prompt, null)
+  sendMessage(bot, routine.prompt, [], null)
 }
 
 // Synchronous from read to save, so no request or second tick interleaves, and
