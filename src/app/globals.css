@@ -2307,6 +2307,23 @@ button.footRow:hover {
   padding-left: 1.4em;
 }
 
+/* The base styles strip list markers from every list; replies need them back. */
+.markdown ul {
+  list-style: disc;
+}
+
+.markdown ul ul {
+  list-style: circle;
+}
+
+.markdown ol {
+  list-style: decimal;
+}
+
+.markdown li::marker {
+  color: var(--muted);
+}
+
 .markdown li + li {
   margin-top: 3px;
 }
