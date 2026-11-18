@@ -49,7 +49,17 @@ case "${1:-}" in
     (cd "$ROOT" && npm run build)
     write_plist
     launchctl bootout "$DOMAIN/$LABEL" 2>/dev/null || true
-    launchctl bootstrap "$DOMAIN" "$PLIST"
+    # launchd finishes tearing down the old job asynchronously; bootstrapping
+    # before then fails with "Input/output error".
+    for _ in {1..20}; do
+      launchctl print "$DOMAIN/$LABEL" >/dev/null 2>&1 || break
+      sleep 0.5
+    done
+    for attempt in {1..5}; do
+      launchctl bootstrap "$DOMAIN" "$PLIST" 2>/dev/null && break
+      [ "$attempt" = 5 ] && { echo "Could not start the login item; see: npm run background -- logs" >&2; exit 1; }
+      sleep 2
+    done
     echo "will-bot is running in the background at http://127.0.0.1:3000 and will start at login."
     ;;
   restart)
