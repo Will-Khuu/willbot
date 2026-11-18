@@ -254,3 +254,25 @@ export function deleteRoutine(id: string): Routine | null {
   saveRoutines(routines.filter((r) => r.id !== id))
   return routine
 }
+
+const SCHEDULER_LOCK = path.join(DATA_DIR, 'scheduler.lock')
+
+function alive(pid: number): boolean {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch (e) {
+    return (e as NodeJS.ErrnoException).code === 'EPERM'
+  }
+}
+
+// Only one server process may run routines against this data folder, so a dev
+// server started next to the background service cannot fire them twice. A
+// lock left by a dead process is taken over.
+export function holdSchedulerLock(): boolean {
+  const holder = Number(readText(SCHEDULER_LOCK)?.trim())
+  if (holder === process.pid) return true
+  if (Number.isInteger(holder) && holder > 0 && alive(holder)) return false
+  writeAtomic(SCHEDULER_LOCK, `${process.pid}\n`)
+  return true
+}

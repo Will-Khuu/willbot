@@ -1,9 +1,9 @@
 import { randomUUID } from 'node:crypto'
 import { save, sendMessage } from './agent'
 import { billingOverride } from './env'
-import { due, outcomeFor, record, scheduledOutcome, type Blockers, type Routine } from './routines'
+import { due, lateBy, outcomeFor, record, scheduledOutcome, type Blockers, type Routine } from './routines'
 import { currentUsage, delegatedBy, rt } from './runtime'
-import { getBot, listBots, readRoutines, saveRoutines } from './store'
+import { getBot, holdSchedulerLock, listBots, readRoutines, saveRoutines } from './store'
 import type { Bot, BotId } from './types'
 import { limitBlocks } from './usage'
 
@@ -25,12 +25,15 @@ function blockersOf(bot: Bot, now: Date, billed: ReadonlySet<BotId>): Blockers {
 }
 
 // The routine line goes in just before the message, like a user sending it.
-function deliver(bot: Bot, routine: Routine, now: Date): void {
+function deliver(bot: Bot, routine: Routine, now: Date, late: number | null = null): void {
   save(bot.id, { kind: 'routine', id: randomUUID(), botId: bot.id, routineId: routine.id, name: routine.name, at: now.toISOString() })
-  sendMessage(bot, routine.prompt, [], null)
+  const due = routine.nextRunAt ? new Date(routine.nextRunAt).toLocaleString() : ''
+  const note = late === null ? '' : `(This scheduled run was due ${due}; will-bot was closed or the Mac was asleep, so it is running late. Cover the time since then.)\n\n`
+  sendMessage(bot, note + routine.prompt, [], null)
 }
 
 export async function tick(now: Date = new Date()): Promise<void> {
+  if (!holdSchedulerLock()) return
   const owners = new Set(due(readRoutines(), now).map((r) => r.botId))
   if (owners.size === 0) return
   runDue(now, await billedBots(listBots().filter((b) => owners.has(b.id))))
@@ -43,19 +46,19 @@ function runDue(now: Date, billed: ReadonlySet<BotId>): void {
   const todo = new Set(due(routines, now))
   if (todo.size === 0) return
   const bots = new Map(listBots().map((b) => [b.id, b]))
-  const runs: [Bot, Routine][] = []
+  const runs: [Bot, Routine, number | null][] = []
   const next = routines.flatMap((r) => {
     if (!todo.has(r)) return [r]
     const bot = bots.get(r.botId)
     if (!bot) return []
     const outcome = scheduledOutcome(r, now, blockersOf(bot, now, billed))
-    if (outcome === 'ran') runs.push([bot, r])
+    if (outcome === 'ran') runs.push([bot, r, lateBy(r, now)])
     return [record(r, outcome, now)]
   })
   saveRoutines(next)
-  for (const [bot, r] of runs) {
+  for (const [bot, r, late] of runs) {
     try {
-      deliver(bot, r, now)
+      deliver(bot, r, now, late)
     } catch (e) {
       console.error(`will-bot: routine ${r.id} failed to send`, e)
     }

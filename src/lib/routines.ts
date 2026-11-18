@@ -154,7 +154,7 @@ export function due(routines: Routine[], now: Date): Routine[] {
   return routines.filter((r) => r.enabled && r.nextRunAt !== null && Date.parse(r.nextRunAt) <= now.getTime())
 }
 
-export const MISSED_AFTER_MS = 2 * HOUR_MS
+const LATE_NOTICE_MS = 10 * 60 * 1000
 
 export type Blockers = { billing: boolean; paused: boolean; limited: boolean; busy: boolean }
 
@@ -167,9 +167,17 @@ export function outcomeFor(b: Blockers): Outcome {
 }
 
 // A run the server slept through still happens if it is under 2 hours late.
-export function scheduledOutcome(routine: Routine, now: Date, blockers: Blockers): Outcome {
-  const late = routine.nextRunAt === null ? 0 : now.getTime() - Date.parse(routine.nextRunAt)
-  return late >= MISSED_AFTER_MS ? 'missed' : outcomeFor(blockers)
+// A run that came due while will-bot was closed or the Mac slept still runs,
+// once, when will-bot is next up; `upcoming` then skips the rest of the backlog.
+export function scheduledOutcome(_routine: Routine, _now: Date, blockers: Blockers): Outcome {
+  return outcomeFor(blockers)
+}
+
+// How late a scheduled run is, worth telling the employee about; null if on time.
+export function lateBy(routine: Routine, now: Date): number | null {
+  if (routine.nextRunAt === null) return null
+  const late = now.getTime() - Date.parse(routine.nextRunAt)
+  return late >= LATE_NOTICE_MS ? late : null
 }
 
 // 'every' counts from the last run, or from creation. Whatever the anchor, the
@@ -197,6 +205,7 @@ export const OUTCOME_TEXT: Record<Exclude<Outcome, 'ran'>, string> = {
   skipped_limit: 'Skipped: plan limit reached',
   skipped_busy: 'Skipped: it was working for the Chief',
   skipped_billing: 'Skipped: an API key was set',
+  // Kept for routines recorded before late runs started catching up.
   missed: 'Missed while will-bot was closed',
 }
 

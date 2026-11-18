@@ -4,9 +4,9 @@
     {
       "name": "will-bot",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev"],
-      "port": 3000,
-      "url": "http://127.0.0.1:3000"
+      "runtimeArgs": ["run", "dev", "--", "-p", "3001"],
+      "port": 3001,
+      "url": "http://127.0.0.1:3001"
     }
   ]
 }

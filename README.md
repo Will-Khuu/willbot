@@ -25,6 +25,20 @@ Other scripts:
 - `npm run build` builds for production. `npm start` serves the build on 127.0.0.1.
 - `npm test` checks the take-over rules, the session state machine, question answer validation, the model router, the task list, activity detail truncation, plan usage parsing, routine scheduling and ownership, attachment names and path checks, the file search filter and score, and extra folder validation.
 
+## Run it in the background
+
+will-bot can run as a macOS login item, so it is always at http://127.0.0.1:3000 while you are logged in and routines fire on time:
+
+```bash
+npm run background -- install     # build, start now, and start at every login
+npm run background -- restart     # after pulling or changing code: rebuild and restart
+npm run background -- status
+npm run background -- logs        # last 50 lines of ~/Library/Logs/will-bot.log
+npm run background -- uninstall   # stop it and remove the login item
+```
+
+It runs `next start` as a LaunchAgent (`~/Library/LaunchAgents/com.willbot.app.plist`) that restarts it if it crashes. For development, run `npm run dev -- -p 3001` next to it; the background server keeps running routines.
+
 ## Starter employees
 
 The first start creates four employees.
@@ -92,7 +106,8 @@ A routine is a saved message that will-bot sends to an employee on a schedule. A
 
 - **Schedules.** Daily, Weekdays (Monday to Friday) or Weekly at a time, or every 1, 2, 3, 4, 6, 8 or 12 hours. Times are in your computer's local time and keep their clock time across daylight saving changes. "Every N hours" counts from the last run, or from when you created the routine.
 - **Same as a message from you.** The chat shows "Routine · Evening summary", then the message. The router, approvals, questions and the task list behave as they do for any message. If the employee is working, the message joins the turn.
-- **Only while will-bot runs.** The server checks every 30 seconds. A run it misses because the server was stopped or the computer slept still happens once if it is under 2 hours late. Otherwise the row says "Missed while will-bot was closed" and the routine waits for its next time. A backlog never runs more than once.
+- **Only while will-bot runs.** The server checks every 30 seconds, so routines need will-bot running and the Mac awake. Run it in the background (below) so it is always up while you are logged in. A run that came due while will-bot was stopped or the Mac slept runs once as soon as will-bot is back, and the employee is told it is running late. A backlog never runs more than once.
+- **One server runs routines.** A lock in `data/scheduler.lock` lets only one will-bot server run them, so a second copy (for example a dev server) cannot fire them twice.
 - **Skips.** A routine does not run while you have taken over the employee, while the employee is working for the Chief, while a plan limit with a known reset time holds, or while a billing variable is set. The row says why, and the routine waits for its next time.
 - **Run now** sends it at once through the same checks and leaves the schedule as it was. The switch turns a routine off without deleting it.
 - **Roster.** An idle employee with a routine on shows the next one, for example "Idle · next: Evening summary 6 PM".

@@ -18,6 +18,7 @@ const {
   record,
   runWords,
   scheduledOutcome,
+  lateBy,
   soonest,
   upcoming,
   RoutineInputSchema,
@@ -157,12 +158,13 @@ test('due picks enabled routines whose time has come', () => {
   )
 })
 
-test('a run under 2 hours late still runs; 2 hours or more is missed', () => {
+test('a late run still runs once, and only blockers skip it', () => {
   const r = routine()
   const at = Date.parse(r.nextRunAt)
-  assert.equal(scheduledOutcome(r, new Date(at + 2 * HOUR - 1), clear), 'ran')
-  assert.equal(scheduledOutcome(r, new Date(at + 2 * HOUR), clear), 'missed')
-  assert.equal(scheduledOutcome(r, new Date(at + 3 * HOUR), { ...clear, paused: true }), 'missed')
+  assert.equal(scheduledOutcome(r, new Date(at + 3 * HOUR), clear), 'ran')
+  assert.equal(scheduledOutcome(r, new Date(at + 3 * HOUR), { ...clear, paused: true }), 'skipped_paused')
+  assert.equal(lateBy(r, new Date(at + 60_000)), null)
+  assert.equal(lateBy(r, new Date(at + 3 * HOUR)), 3 * HOUR)
 })
 
 test('blockers decide the outcome', () => {
@@ -190,14 +192,14 @@ test('a skip advances without touching lastRunAt', () => {
   assert.deepEqual(parts(new Date(next.nextRunAt)), [2026, 11, 19, 18, 0])
 })
 
-test('a backlog of days is recorded missed once and never runs', () => {
+test('a backlog of days runs once, then waits for the next scheduled time', () => {
   let list = [routine({ nextRunAt: local(2026, 11, 15, 18).toISOString() })]
   const now = local(2026, 11, 18, 20)
   const first = due(list, now)
   assert.equal(first.length, 1)
-  assert.equal(scheduledOutcome(first[0], now, clear), 'missed')
-  list = [record(first[0], 'missed', now)]
-  assert.equal(list[0].lastRunAt, null)
+  assert.equal(scheduledOutcome(first[0], now, clear), 'ran')
+  list = [record(first[0], 'ran', now)]
+  assert.equal(list[0].lastRunAt, now.toISOString())
   assert.deepEqual(parts(new Date(list[0].nextRunAt)), [2026, 11, 19, 18, 0])
   assert.equal(due(list, now).length, 0)
   assert.equal(due(list, new Date(now.getTime() + 30_000)).length, 0)
