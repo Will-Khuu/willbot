@@ -2,16 +2,25 @@ import { z } from 'zod'
 
 export type BotId = string
 
+export const AccessSchema = z.enum(['workspace', 'full'])
+export type Access = z.infer<typeof AccessSchema>
+
 export const BotSchema = z.object({
   id: z.string(),
   name: z.string(),
   job: z.string(),
   tools: z.array(z.string()),
+  access: AccessSchema.default('full'),
   paused: z.boolean(),
   builtin: z.literal('chief').nullable(),
   createdAt: z.string(),
 })
 export type Bot = z.infer<typeof BotSchema>
+
+// The Chief stays a coordinator whatever its access says.
+export function isFull(bot: Bot): boolean {
+  return bot.access === 'full' && bot.builtin !== 'chief'
+}
 export const BotsFileSchema = z.array(BotSchema)
 
 export type BotStatus = 'paused' | 'needs_approval' | 'working' | 'idle'
@@ -51,3 +60,6 @@ export type StreamEvent =
   | { type: 'error'; message: string }
 
 export type MemoryEntry = { date: string; text: string }
+
+export type Connector = { name: string; status: string; tools: number }
+export type Capabilities = { plugins: string[]; skills: number; connectors: Connector[] } | { error: string }

@@ -2,12 +2,14 @@ import { z } from 'zod'
 import { error, findBot, parseBody, type IdParams } from '@/lib/http'
 import { stopRun } from '@/lib/runtime'
 import { deleteBot, updateBot } from '@/lib/store'
+import { AccessSchema } from '@/lib/types'
 
 const PatchBot = z
   .object({
     name: z.string().trim().min(1).max(40).optional(),
     job: z.string().trim().min(1).max(500).optional(),
     paused: z.boolean().optional(),
+    access: AccessSchema.optional(),
   })
   .strict()
 

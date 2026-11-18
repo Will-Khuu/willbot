@@ -24,6 +24,7 @@ const SEED: Omit<Bot, 'createdAt'>[] = [
     name: 'Chief of Staff',
     job: 'Coordinates the other bots and gives me short summaries.',
     tools: ['Read', 'Glob', 'Grep', 'Agent'],
+    access: 'full',
     paused: false,
     builtin: 'chief',
   },
@@ -32,6 +33,7 @@ const SEED: Omit<Bot, 'createdAt'>[] = [
     name: 'Research Bot',
     job: 'Researches a topic with the web tools and writes a short brief with sources to its workspace.',
     tools: ['WebSearch', 'WebFetch', 'Read', 'Write', 'Glob', 'Grep'],
+    access: 'full',
     paused: false,
     builtin: null,
   },
@@ -40,6 +42,7 @@ const SEED: Omit<Bot, 'createdAt'>[] = [
     name: 'Builder Bot',
     job: 'Makes small code changes inside its workspace folder only.',
     tools: ['Read', 'Write', 'Edit', 'Glob', 'Grep', 'Bash'],
+    access: 'full',
     paused: false,
     builtin: null,
   },
@@ -92,6 +95,7 @@ export function createBot(name: string, job: string): Bot {
     name,
     job,
     tools: NEW_BOT_TOOLS,
+    access: 'full',
     paused: false,
     builtin: null,
     createdAt: new Date().toISOString(),
@@ -100,7 +104,7 @@ export function createBot(name: string, job: string): Bot {
   return bot
 }
 
-export function updateBot(id: BotId, patch: Partial<Pick<Bot, 'name' | 'job' | 'paused'>>): Bot | null {
+export function updateBot(id: BotId, patch: Partial<Pick<Bot, 'name' | 'job' | 'paused' | 'access'>>): Bot | null {
   const bots = listBots()
   const i = bots.findIndex((b) => b.id === id)
   if (i < 0) return null

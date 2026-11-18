@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import type { Bot, BotId, BotStatus, BotView } from './types'
+import type { Bot, BotId, BotStatus, BotView, Capabilities } from './types'
 
 export type ApprovalOutcome = 'allowed' | 'denied' | 'expired'
 
@@ -11,13 +11,33 @@ type PendingApproval = {
   resolve: (outcome: ApprovalOutcome) => void
 }
 
-type Runtime = { runs: Map<BotId, ActiveRun>; approvals: Map<string, PendingApproval> }
+type Runtime = {
+  runs: Map<BotId, ActiveRun>
+  approvals: Map<string, PendingApproval>
+  capabilities?: { at: number; value: Promise<Capabilities> }
+}
 
 export const APPROVAL_TIMEOUT_MS = 10 * 60 * 1000
 
 // Next dev re-evaluates modules on HMR; the live runs and approvals must survive it.
 const g = globalThis as typeof globalThis & { __willbot?: Runtime }
 const rt: Runtime = (g.__willbot ??= { runs: new Map(), approvals: new Map() })
+
+const CAPABILITIES_TTL_MS = 10 * 60 * 1000
+
+// Concurrent callers share one probe. A failed probe is not kept, so the next
+// call tries again.
+export function cachedCapabilities(load: () => Promise<Capabilities>): Promise<Capabilities> {
+  const hit = rt.capabilities
+  if (hit && Date.now() - hit.at < CAPABILITIES_TTL_MS) return hit.value
+  const value = load().catch((e: unknown) => ({ error: e instanceof Error ? e.message : String(e) }))
+  const entry = { at: Date.now(), value }
+  rt.capabilities = entry
+  void value.then((v) => {
+    if ('error' in v && rt.capabilities === entry) rt.capabilities = undefined
+  })
+  return value
+}
 
 export function startRun(botId: BotId): ActiveRun | null {
   if (rt.runs.has(botId)) return null

@@ -1,3 +1,4 @@
+import os from 'node:os'
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
@@ -9,52 +10,37 @@ import {
   type CanUseTool,
   type HookCallback,
   type Options,
+  type Query,
   type SDKMessage,
+  type SDKUserMessage,
 } from '@anthropic-ai/claude-agent-sdk'
-import { classifyTool } from './policy'
+import { sdkEnv } from './env'
+import { classifyTool, type FullAccess } from './policy'
 import { endRun, requestApproval, startRun } from './runtime'
 import { appendMemory, getBot, listBots, readChat, readMemory, setSessionId, upsertChatItem, workspaceDir } from './store'
-import type { Bot, BotId, ChatItem, StreamEvent } from './types'
+import { isFull, type Bot, type BotId, type ChatItem, type StreamEvent } from './types'
 
 const MODELS = { chief: 'sonnet', worker: 'haiku' } as const
 const MAX_TURNS = { chief: 12, worker: 8 } as const
 const REMEMBER = 'mcp__willbot__remember'
+const CONNECT_WAIT_MS = 12_000
 const DENY_MESSAGE = 'The user said not yet. Do not retry this action; tell the user what you wanted to do.'
-
-const BILLING_VARS = [
-  'ANTHROPIC_API_KEY',
-  'ANTHROPIC_AUTH_TOKEN',
-  'ANTHROPIC_BASE_URL',
-  'CLAUDE_CODE_USE_BEDROCK',
-  'CLAUDE_CODE_USE_VERTEX',
-  'CLAUDE_CODE_USE_FOUNDRY',
-] as const
-const ENV_ALLOWLIST = ['PATH', 'HOME', 'USER', 'LOGNAME', 'SHELL', 'TMPDIR', 'LANG', 'LC_ALL', 'LC_CTYPE', 'TERM', 'CLAUDE_CONFIG_DIR']
-
-export function billingOverride(): string | null {
-  return BILLING_VARS.find((name) => process.env[name]) ?? null
-}
-
-// The SDK does not merge this with process.env, so nothing else reaches the CLI.
-function sdkEnv(): Record<string, string> {
-  const env: Record<string, string> = { CLAUDE_AGENT_SDK_CLIENT_APP: 'will-bot/0.1.0' }
-  for (const name of ENV_ALLOWLIST) {
-    const value = process.env[name]
-    if (value !== undefined) env[name] = value
-  }
-  return env
-}
 
 function systemPrompt(bot: Bot, opts: { canRemember: boolean; team?: Bot[] }): string {
   const memory = readMemory(bot.id)
+  const full = isFull(bot)
   const lines = [
     `You are ${bot.name}, one bot in a small team the user runs on their own Mac.`,
     `Your job: ${bot.job}`,
-    `Your workspace folder is ${workspaceDir(bot.id)}. Only read and write files inside it, and always use absolute paths.`,
+    full
+      ? `Your workspace folder is ${workspaceDir(bot.id)}. Save your work there. You may read files elsewhere on this Mac. Always use absolute paths.`
+      : `Your workspace folder is ${workspaceDir(bot.id)}. Only read and write files inside it, and always use absolute paths.`,
     '',
     'Rules:',
     '- Keep replies short: a few sentences unless asked for more.',
-    '- Ask before risky actions. Shell commands, deleting files and anything that sends or posts need the user to approve.',
+    full
+      ? '- Shell commands, writes outside your folder, and anything that sends, posts or changes data wait for the user to approve.'
+      : '- Ask before risky actions. Shell commands, deleting files and anything that sends or posts need the user to approve.',
     '- If the user denies an action, do not retry it. Say what you wanted to do.',
     '- Never read .env files or anything that looks like a secret.',
   ]
@@ -100,16 +86,29 @@ const ACTIVITY: Record<string, (input: Record<string, unknown>, nameOf: (id: str
   WebFetch: (i) => `Opened ${host(str(i, 'url'))}`,
   Bash: (i) => (str(i, 'description') ? `Shell command: ${short(str(i, 'description'), 60)}` : 'Shell command'),
   Agent: (i, nameOf) => `Asked ${nameOf(str(i, 'subagent_type'))}`,
+  Task: (i, nameOf) => `Asked ${nameOf(str(i, 'subagent_type'))}`,
+  Skill: (i) => `Used the ${short(str(i, 'skill'), 40)} skill`,
   [REMEMBER]: (i) => `Remembered: ${short(str(i, 'note'), 60)}`,
 }
 
+// mcp__claude_ai_Google_Drive__search_files -> "Google Drive: search_files"
+function mcpName(toolName: string): string | null {
+  const m = /^mcp__(.+?)__(.+)$/.exec(toolName)
+  if (!m) return null
+  return `${m[1]!.replace(/^claude_ai_/, '').replace(/_/g, ' ')}: ${m[2]}`
+}
+
 function activityLabel(toolName: string, input: Record<string, unknown>, nameOf: (id: string) => string): string {
-  return ACTIVITY[toolName]?.(input, nameOf) ?? `Used ${toolName}`
+  return ACTIVITY[toolName]?.(input, nameOf) ?? `Used ${mcpName(toolName) ?? toolName}`
 }
 
 function describeAction(toolName: string, input: Record<string, unknown>): string {
   if (toolName === 'Bash') return `Run this shell command: ${str(input, 'command')}`
-  return `Use ${toolName} with ${short(JSON.stringify(input), 300)}`
+  return `Use ${mcpName(toolName) ?? toolName} with ${short(JSON.stringify(input), 300)}`
+}
+
+function isDelegation(toolName: string): boolean {
+  return toolName === 'Agent' || toolName === 'Task'
 }
 
 function rememberServer(botId: BotId) {
@@ -142,7 +141,7 @@ function agentDefinitions(others: Bot[]): Record<string, AgentDefinition> {
         {
           description: `${b.name}: ${b.job}${memo ? ` Notes: ${memo}` : ''}`,
           prompt: systemPrompt(b, { canRemember: false }),
-          tools: b.tools.filter((t) => t !== 'Agent'),
+          tools: isFull(b) ? undefined : b.tools.filter((t) => t !== 'Agent'),
           model: MODELS.worker,
           maxTurns: MAX_TURNS.worker,
           background: false,
@@ -173,6 +172,7 @@ export function runBot(botId: BotId, message: string, emit: (event: StreamEvent)
     [bot, ...team].map((b) => [b.id, new Set(b.id === bot.id ? [...ownTools(b), REMEMBER] : ownTools(b))]),
   )
   const sessionTools = [...new Set([bot, ...team].flatMap(ownTools))]
+  const fullIds = new Set([bot, ...team].filter(isFull).map((b) => b.id))
   const isTeam = (id: string) => id !== bot.id && workspaces.has(id)
   const prompt = systemPrompt(bot, { canRemember: true, team })
   const resume = readChat(botId).sessionId ?? undefined
@@ -188,6 +188,21 @@ export function runBot(botId: BotId, message: string, emit: (event: StreamEvent)
   const caller = new Map<string, BotId>()
   // Agent tool_use id -> delegated bot, to attribute subagent messages.
   const delegations = new Map<string, BotId>()
+  // MCP tool name -> read-only, filled from the session's server status.
+  const mcpReadOnly = new Map<string, boolean>()
+  let session: Query | null = null
+  const full: FullAccess = { home: os.homedir(), readOnlyMcp: (name) => mcpReadOnly.get(name) === true }
+  const accessOf = (actor: BotId) => (fullIds.has(actor) ? full : undefined)
+  // A failed lookup leaves the tool unknown, which asks.
+  const learnMcpTools = async () => {
+    const servers = await session?.mcpServerStatus().catch(() => null)
+    for (const server of servers ?? []) {
+      const prefix = `mcp__${server.name.replace(/[^a-zA-Z0-9_-]/g, '_')}__`
+      for (const t of server.tools ?? []) {
+        mcpReadOnly.set(prefix + t.name, t.annotations?.readOnly === true && t.annotations.destructive !== true)
+      }
+    }
+  }
 
   const save = (item: ChatItem, update = false) => {
     upsertChatItem(botId, item)
@@ -207,24 +222,36 @@ export function runBot(botId: BotId, message: string, emit: (event: StreamEvent)
     return current.paused ? `${current.name} is paused by the user.` : null
   }
 
+  // A full bot's own subagents (not team bots) act as the bot itself. In the
+  // Chief's run every subagent must be a team bot.
+  const actorOf = (agentId: string | undefined, agentType: string | undefined): BotId | null => {
+    if (!agentId) return bot.id
+    if (agentType && isTeam(agentType)) return agentType
+    return !isChief && fullIds.has(bot.id) ? bot.id : null
+  }
+
   const guard: HookCallback = async (input) => {
     if (input.hook_event_name !== 'PreToolUse') return {}
-    if (input.agent_id && !(input.agent_type && isTeam(input.agent_type))) return refuse('Unknown agent.')
-    const actor = input.agent_id ? input.agent_type! : bot.id
+    const actor = actorOf(input.agent_id, input.agent_type)
+    if (!actor) return refuse('Unknown agent.')
     caller.set(input.tool_use_id, actor)
+    const toolName = input.tool_name
     const toolInput = (input.tool_input ?? {}) as Record<string, unknown>
     const actorUnavailable = unavailable(actor)
     if (actorUnavailable) return refuse(actorUnavailable)
-    if (!toolsOf.get(actor)?.has(input.tool_name)) {
-      return refuse(`${input.tool_name} is not one of your tools. Delegate it to a bot that has it.`)
-    }
-    if (input.tool_name === 'Agent') {
+    const listed = fullIds.has(actor) || toolsOf.get(actor)?.has(isDelegation(toolName) ? 'Agent' : toolName)
+    if (!listed) return refuse(`${toolName} is not one of your tools. Delegate it to a bot that has it.`)
+    // remember writes to the run owner's memory.
+    if (toolName === REMEMBER && actor !== bot.id) return refuse('Only the bot you are talking to can remember.')
+    if (isDelegation(toolName) && isChief) {
+      if (actor !== bot.id) return refuse('Only the Chief of Staff delegates.')
       const target = str(toolInput, 'subagent_type')
       if (!isTeam(target)) return refuse('Delegate only to your team, using a bot id as subagent_type.')
       const targetUnavailable = unavailable(target)
       if (targetUnavailable) return refuse(targetUnavailable)
     }
-    const decision = classifyTool(input.tool_name, toolInput, workspaceOf(actor))
+    if (fullIds.has(actor) && toolName.startsWith('mcp__') && !mcpReadOnly.has(toolName)) await learnMcpTools()
+    const decision = classifyTool(toolName, toolInput, workspaceOf(actor), accessOf(actor))
     if (decision.kind === 'deny') return refuse(decision.reason)
     // The CLI auto-allows commands it judges read-only (`ls`), so returning
     // nothing here would skip canUseTool. 'ask' forces the approval path.
@@ -236,7 +263,7 @@ export function runBot(botId: BotId, message: string, emit: (event: StreamEvent)
 
   const canUseTool: CanUseTool = async (toolName, input, { signal, toolUseID }) => {
     const actor = caller.get(toolUseID) ?? bot.id
-    const decision = classifyTool(toolName, input, workspaceOf(actor))
+    const decision = classifyTool(toolName, input, workspaceOf(actor), accessOf(actor))
     if (decision.kind === 'allow') return { behavior: 'allow', updatedInput: decision.input }
     if (decision.kind === 'deny') return { behavior: 'deny', message: decision.reason }
     const action = describeAction(toolName, input)
@@ -249,20 +276,25 @@ export function runBot(botId: BotId, message: string, emit: (event: StreamEvent)
     return outcome === 'allowed' ? { behavior: 'allow', updatedInput: input } : { behavior: 'deny', message: DENY_MESSAGE }
   }
 
+  // A full bot gets the user's own plugins, skills and connectors; so does the
+  // Chief when it delegates to one. The guard still decides every call.
+  const userSetup = fullIds.size > 0
   const options: Options = {
-    systemPrompt: prompt,
+    // The SDK records a session's prompt and reuses it on resume by default.
+    // Job, memory and access live in this prompt, so edits must reach live chats.
+    systemPrompt: { type: 'custom', prompt, snapshot: false },
     cwd: workspaceOf(bot.id),
     additionalDirectories: team.map((b) => workspaceOf(b.id)),
     resume,
     maxTurns: isChief ? MAX_TURNS.chief : MAX_TURNS.worker,
     model: isChief ? MODELS.chief : MODELS.worker,
     abortController: run.abort,
-    tools: sessionTools,
+    tools: userSetup ? undefined : sessionTools,
     mcpServers: { willbot: rememberServer(bot.id) },
     agents,
     hooks: { PreToolUse: [{ hooks: [guard] }] },
     canUseTool,
-    settingSources: [],
+    settingSources: userSetup ? ['user'] : [],
     permissionMode: 'default',
     env: sdkEnv(),
   }
@@ -289,7 +321,7 @@ export function runBot(botId: BotId, message: string, emit: (event: StreamEvent)
           save({ kind: 'assistant', id: id(), botId: speaker, text: block.text.trim(), at: now() })
         } else if (block.type === 'tool_use') {
           const input = (block.input ?? {}) as Record<string, unknown>
-          if (block.name === 'Agent') {
+          if (isDelegation(block.name)) {
             const target = str(input, 'subagent_type')
             if (workspaces.has(target)) {
               delegations.set(block.id, target)
@@ -318,10 +350,25 @@ export function runBot(botId: BotId, message: string, emit: (event: StreamEvent)
     }
   }
 
+  // claude.ai connectors connect seconds after start. A prompt sent at once
+  // runs its first turn without them, and the model reports them unavailable.
+  async function* afterConnectors(): AsyncGenerator<SDKUserMessage> {
+    const deadline = Date.now() + CONNECT_WAIT_MS
+    for (;;) {
+      const servers = (await session?.mcpServerStatus().catch(() => null)) ?? []
+      const settled = servers.some((s) => s.scope === 'claudeai') && !servers.some((s) => s.status === 'pending')
+      if (settled || Date.now() >= deadline || run!.abort.signal.aborted) break
+      await new Promise((r) => setTimeout(r, 300))
+    }
+    await learnMcpTools()
+    yield { type: 'user', message: { role: 'user', content: message }, parent_tool_use_id: null, session_id: '' }
+  }
+
   const done = (async () => {
     try {
       save({ kind: 'user', id: id(), text: message, at: now() })
-      for await (const msg of query({ prompt: message, options })) handle(msg)
+      session = query({ prompt: userSetup ? afterConnectors() : message, options })
+      for await (const msg of session) handle(msg)
     } catch (e) {
       if (run.abort.signal.aborted) save({ kind: 'error', id: id(), text: 'Stopped.', at: now() })
       else if (!reported) fail(e instanceof Error ? e.message : String(e))

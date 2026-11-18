@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { checkPath, classifyTool, isEnvFile } from './policy.ts'
+import { checkPath, classifyTool, isEnvFile, isSecret } from './policy.ts'
 
 const tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'willbot-policy-')))
 const ws = path.join(tmp, 'ws')
@@ -165,6 +165,105 @@ check('Agent strips overrides and forces foreground', () => {
 check('remember allows', () => assert.equal(kind('mcp__willbot__remember', { note: 'x' }), 'allow'))
 check('unknown MCP send tool asks', () => assert.equal(kind('mcp__mail__send_message', { to: 'x' }), 'ask'))
 check('unknown built-in asks', () => assert.equal(kind('PowerShell', { command: 'x' }), 'ask'))
+check('Task is the Agent rule', () => {
+  const d = classifyTool('Task', { subagent_type: 'research', prompt: 'p', description: 'd', model: 'opus', run_in_background: true }, ws)
+  assert.equal(d.kind, 'allow')
+  assert.deepEqual(d.input, { subagent_type: 'research', prompt: 'p', description: 'd', run_in_background: false })
+})
+
+const home = path.join(tmp, 'home')
+for (const dir of ['.ssh', '.aws', '.gnupg', '.config/gh', 'Library/Keychains', '.claude', 'docs']) {
+  fs.mkdirSync(path.join(home, dir), { recursive: true })
+}
+fs.writeFileSync(path.join(home, 'docs', 'plan.md'), 'plan')
+fs.writeFileSync(path.join(home, '.ssh', 'config'), 'Host x')
+fs.writeFileSync(path.join(home, '.claude', '.credentials.json'), '{}')
+fs.symlinkSync(path.join(home, '.ssh'), path.join(home, 'docs', 'keys'))
+const readOnly = new Set(['mcp__claude_ai_Gmail__search_threads'])
+const full = { home, readOnlyMcp: (name) => readOnly.has(name) }
+const fullKind = (tool, input) => classifyTool(tool, input, ws, full).kind
+const fullReason = (tool, input) => classifyTool(tool, input, ws, full).reason
+
+check('full: Read outside the workspace allows and rewrites path', () => {
+  const d = classifyTool('Read', { file_path: path.join(home, 'docs', 'plan.md') }, ws, full)
+  assert.equal(d.kind, 'allow')
+  assert.equal(d.input.file_path, path.join(home, 'docs', 'plan.md'))
+  assert.equal(fullKind('Read', { file_path: '/etc/hosts' }), 'allow')
+})
+check('full: Read inside still allows', () => assert.equal(fullKind('Read', { file_path: 'notes.md' }), 'allow'))
+check('full: secret paths deny', () => {
+  for (const p of [
+    path.join(home, '.ssh', 'config'),
+    path.join(home, '.SSH', 'config'),
+    path.join(home, '.aws', 'credentials'),
+    path.join(home, '.gnupg', 'x'),
+    path.join(home, '.config', 'gh', 'hosts.yml'),
+    path.join(home, '.netrc'),
+    path.join(home, 'Library', 'Keychains', 'login.keychain-db'),
+    path.join(home, '.claude', '.credentials.json'),
+    path.join(home, 'docs', 'id_rsa'),
+    path.join(home, 'docs', 'id_ed25519.pub'),
+    path.join(home, 'docs', 'server.PEM'),
+    path.join(home, 'docs', '.env.local'),
+    path.join(home, 'docs', 'keys', 'config'),
+  ]) {
+    assert.equal(fullKind('Read', { file_path: p }), 'deny', p)
+  }
+  assert.match(fullReason('Read', { file_path: path.join(home, '.aws', 'credentials') }), /Secrets are off limits/)
+})
+check('full: non-secret neighbours of secrets allow', () => {
+  assert.equal(isSecret(path.join(home, '.sshd', 'x'), home), false)
+  assert.equal(isSecret(path.join(home, '.claude', 'settings.json'), home), false)
+  assert.equal(isSecret(path.join(home, '.config', 'ghostty'), home), false)
+  assert.equal(isSecret('/elsewhere/.ssh-notes', home), false)
+})
+check('full: dot-dot still denies', () => assert.equal(fullKind('Read', { file_path: `${home}/docs/../.ssh/config` }), 'deny'))
+check('full: Glob outside allows, into a secret folder denies', () => {
+  assert.equal(fullKind('Glob', { pattern: '*.md', path: path.join(home, 'docs') }), 'allow')
+  assert.equal(fullKind('Glob', { pattern: '*', path: path.join(home, '.ssh') }), 'deny')
+  assert.equal(classifyTool('Glob', { pattern: '*' }, ws, full).input.path, ws)
+})
+check('full: Grep inside allows, outside asks, secret folder denies', () => {
+  assert.equal(fullKind('Grep', { pattern: 'x' }), 'allow')
+  assert.equal(fullKind('Grep', { pattern: 'x', path: path.join(home, 'docs') }), 'ask')
+  assert.equal(fullKind('Grep', { pattern: 'x', path: path.join(home, '.aws') }), 'deny')
+})
+check('full: writes inside allow, outside ask, secrets deny', () => {
+  assert.equal(fullKind('Write', { file_path: path.join(ws, 'brief.md'), content: 'x' }), 'allow')
+  assert.equal(fullKind('Write', { file_path: path.join(home, 'docs', 'new.md'), content: 'x' }), 'ask')
+  assert.equal(fullKind('Edit', { file_path: path.join(home, 'docs', 'plan.md'), old_string: 'a', new_string: 'b' }), 'ask')
+  assert.equal(fullKind('NotebookEdit', { notebook_path: '/tmp/x.ipynb' }), 'ask')
+  assert.equal(fullKind('Write', { file_path: path.join(home, '.ssh', 'authorized_keys'), content: 'x' }), 'deny')
+  assert.equal(fullKind('Edit', { file_path: path.join(ws, '.env'), old_string: 'a', new_string: 'b' }), 'deny')
+})
+check('full: Bash still asks', () => assert.equal(fullKind('Bash', { command: 'ls' }), 'ask'))
+check('full: WebFetch keeps the private-network rule', () => {
+  assert.equal(fullKind('WebFetch', { url: 'http://127.0.0.1:3000/', prompt: 'x' }), 'deny')
+  assert.equal(fullKind('WebFetch', { url: 'https://example.com/', prompt: 'x' }), 'allow')
+})
+check('full: harmless built-ins allow', () => {
+  for (const t of ['WebSearch', 'Skill', 'ToolSearch', 'ListAgents', 'TaskStop']) assert.equal(fullKind(t, {}), 'allow', t)
+})
+check('full: AskUserQuestion and plan mode deny', () => {
+  assert.equal(fullReason('AskUserQuestion', { questions: [] }), 'Ask the user in your reply instead.')
+  assert.equal(fullReason('EnterPlanMode', {}), 'Plan in your reply instead.')
+  assert.equal(fullReason('ExitPlanMode', {}), 'Plan in your reply instead.')
+})
+check('full: persistent and outward built-ins ask', () => {
+  for (const t of ['CronCreate', 'CronDelete', 'RemoteTrigger', 'ScheduleWakeup', 'PushNotification', 'SendMessage', 'Monitor', 'EnterWorktree']) {
+    assert.equal(fullKind(t, {}), 'ask', t)
+  }
+})
+check('full: Task is the Agent rule', () => {
+  const d = classifyTool('Task', { subagent_type: 'general-purpose', prompt: 'p', description: 'd', isolation: 'remote' }, ws, full)
+  assert.deepEqual(d.input, { subagent_type: 'general-purpose', prompt: 'p', description: 'd', run_in_background: false })
+})
+check('full: read-only MCP tool allows', () => assert.equal(fullKind('mcp__claude_ai_Gmail__search_threads', { q: 'x' }), 'allow'))
+check('full: writing MCP tool asks', () => assert.equal(fullKind('mcp__claude_ai_Gmail__send_message', { to: 'x' }), 'ask'))
+check('full: unknown MCP tool asks', () => assert.equal(fullKind('mcp__claude_ai_Notion__notion-new-thing', {}), 'ask'))
+check('full: remember allows', () => assert.equal(fullKind('mcp__willbot__remember', { note: 'x' }), 'allow'))
+check('workspace mode ignores the MCP lookup', () => assert.equal(kind('mcp__claude_ai_Gmail__search_threads', {}), 'ask'))
+check('workspace mode still denies reads outside', () => assert.equal(kind('Read', { file_path: path.join(home, 'docs', 'plan.md') }), 'deny'))
 
 fs.rmSync(tmp, { recursive: true, force: true })
 if (failures) {

@@ -1,5 +1,6 @@
 import { z } from 'zod'
-import { billingOverride, runBot } from '@/lib/agent'
+import { runBot } from '@/lib/agent'
+import { billingOverride } from '@/lib/env'
 import { error, findBot, parseBody } from '@/lib/http'
 import { delegatedBy, isBusy } from '@/lib/runtime'
 import { getBot } from '@/lib/store'

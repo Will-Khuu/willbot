@@ -178,6 +178,7 @@ export function App() {
               await refreshBots()
             }}
             onSaveMemory={saveMemory}
+            onSaveAccess={(access) => run(() => api.patchBot(bot.id, { access }))()}
             onDelete={async () => {
               await api.deleteBot(bot.id)
               setSelectedId('chief')

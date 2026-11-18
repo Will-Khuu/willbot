@@ -1,4 +1,4 @@
-import type { BotView, Chat, ChatItem, MemoryEntry, StreamEvent } from '@/lib/types'
+import type { Access, BotView, Capabilities, Chat, ChatItem, MemoryEntry, StreamEvent } from '@/lib/types'
 
 async function call<T>(url: string, init?: RequestInit & { json?: unknown }): Promise<T> {
   const res = await fetch(url, {
@@ -23,8 +23,9 @@ export const api = {
   health: () => call<{ apiKeySet: boolean; billingVar: string | null }>('/api/health'),
   bots: () => call<BotView[]>('/api/bots'),
   createBot: (name: string, job: string) => call<BotView>('/api/bots', { method: 'POST', json: { name, job } }),
-  patchBot: (id: string, patch: { job?: string; paused?: boolean }) =>
+  patchBot: (id: string, patch: { job?: string; paused?: boolean; access?: Access }) =>
     call<BotView>(`/api/bots/${id}`, { method: 'PATCH', json: patch }),
+  capabilities: () => call<Capabilities>('/api/capabilities'),
   deleteBot: (id: string) => call<null>(`/api/bots/${id}`, { method: 'DELETE' }),
   chat: (id: string) => call<Chat>(`/api/chats/${id}`),
   stop: (botId: string) => call<{ stopped: boolean }>('/api/chat/stop', { method: 'POST', json: { botId } }),
