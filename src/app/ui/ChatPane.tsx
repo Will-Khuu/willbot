@@ -9,6 +9,7 @@ import type { ActivityItem, Answers, ApprovalItem, BotView, ChatItem, Model, Que
 import { attachmentUrl } from './api'
 import { Avatar } from './Avatar'
 import { Composer } from './Composer'
+import { Markdown } from './Markdown'
 import { FileCard } from './FileCard'
 import { Icon, type IconName } from './icons'
 
@@ -399,8 +400,8 @@ export function ChatPane(props: Props) {
                 return (
                   <div key={item.id} className="botRow">
                     {item.botId !== bot.id && <div className="botWho">{nameOf(item.botId)}</div>}
-                    <div className="bubble botBubble" title={new Date(item.at).toLocaleString()}>
-                      {item.text}
+                    <div className="bubble botBubble mdBubble" title={new Date(item.at).toLocaleString()}>
+                      <Markdown text={item.text} />
                     </div>
                   </div>
                 )
