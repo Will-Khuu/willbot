@@ -1,0 +1,743 @@
+:root {
+  --ink: #1c1b19;
+  --muted: #5e5a50;
+  --body-ink: #3a3832;
+  --ground: #f5f3ee;
+  --sidebar: #ebe8e0;
+  --chat: #fbfaf7;
+  --bubble: #f0ede5;
+  --line: #e3dfd5;
+  --line-strong: #d9d5ca;
+  --control-line: #cfcabd;
+  --selected: #f9f7f2;
+  --accent: #b4502f;
+  --accent-hover: #9c4527;
+  --approval-ink: #7a3410;
+  --banner: #f3e1d2;
+  --banner-ink: #5a2a12;
+  --banner-line: #e3c9b4;
+  --error-bg: #fbeeea;
+  --error-line: #e8c3b8;
+  --error-ink: #7a2410;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: var(--ground);
+  color: var(--ink);
+  font-family: 'Inter', system-ui, sans-serif;
+}
+
+button,
+input,
+textarea {
+  font-family: inherit;
+  font-size: 14px;
+  color: var(--ink);
+}
+
+button {
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+button:focus-visible,
+input:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+
+h1,
+h2,
+h3,
+p {
+  margin: 0;
+}
+
+.visuallyHidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.shell {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.keyBanner {
+  padding: 12px 24px;
+  background: #7a2410;
+  color: #ffffff;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.5;
+}
+
+.columns {
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  background: var(--ground);
+  overflow: hidden;
+}
+
+.roster {
+  width: 268px;
+  flex: none;
+  background: var(--sidebar);
+  border-right: 1px solid var(--line-strong);
+  display: flex;
+  flex-direction: column;
+  padding: 20px 12px;
+  gap: 20px;
+  overflow-y: auto;
+}
+
+.rosterHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 8px;
+}
+
+.rosterTitle {
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.iconButton {
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  border: 1px solid var(--control-line);
+  background: var(--ground);
+  font-size: 20px;
+  line-height: 1;
+}
+
+.rosterList {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.sectionLabel {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.rosterLabel {
+  padding: 0 8px 4px;
+}
+
+.rosterRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 56px;
+  padding: 8px;
+  border: none;
+  border-radius: 10px;
+  text-align: left;
+  background: transparent;
+}
+
+.rosterRow:hover {
+  background: #f1eee7;
+}
+
+.rosterRow.selected {
+  background: var(--selected);
+}
+
+.avatar {
+  width: 36px;
+  height: 36px;
+  flex: none;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.avatar.small {
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  font-size: 12px;
+}
+
+.rosterText {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1 1 auto;
+  gap: 2px;
+}
+
+.rosterName {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.rosterStatus {
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dot {
+  width: 9px;
+  height: 9px;
+  flex: none;
+  border-radius: 50%;
+}
+
+.createForm {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px;
+  border-radius: 10px;
+  background: var(--ground);
+  border: 1px solid var(--line-strong);
+}
+
+.fieldLabel {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.field {
+  width: 100%;
+  min-height: 44px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--control-line);
+  background: #ffffff;
+  line-height: 1.5;
+  resize: vertical;
+}
+
+.formError {
+  font-size: 13px;
+  color: var(--error-ink);
+}
+
+.primaryButton,
+.sendButton {
+  min-height: 44px;
+  padding: 0 18px;
+  border-radius: 10px;
+  border: none;
+  background: var(--accent);
+  color: #ffffff;
+  font-weight: 600;
+}
+
+.primaryButton:hover:not(:disabled),
+.sendButton:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+.sendButton {
+  min-height: 48px;
+  padding: 0 22px;
+  border-radius: 12px;
+}
+
+.secondaryButton {
+  min-height: 44px;
+  padding: 0 16px;
+  border-radius: 10px;
+  border: 1px solid var(--ink);
+  background: #ffffff;
+  font-weight: 600;
+}
+
+.secondaryButton.inverted,
+.darkButton {
+  background: var(--ink);
+  color: #ffffff;
+  border: 1px solid var(--ink);
+}
+
+.darkButton {
+  min-height: 44px;
+  padding: 0 18px;
+  border-radius: 10px;
+  font-weight: 600;
+}
+
+.linkButton {
+  min-height: 44px;
+  min-width: 44px;
+  padding: 0 6px;
+  border: none;
+  background: transparent;
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.dangerButton {
+  min-height: 44px;
+  padding: 0 16px;
+  border-radius: 10px;
+  border: 1px solid var(--error-ink);
+  background: transparent;
+  color: var(--error-ink);
+  font-weight: 600;
+  align-self: flex-start;
+}
+
+.row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.chat {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--chat);
+}
+
+.chatHead {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 16px 24px;
+  border-bottom: 1px solid var(--line);
+  flex-wrap: wrap;
+}
+
+.chatTitle {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1 1 200px;
+  min-width: 0;
+}
+
+.chatName {
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.chatStatus {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.detailsToggle {
+  display: none;
+}
+
+.takeoverBanner {
+  padding: 10px 24px;
+  background: var(--banner);
+  color: var(--banner-ink);
+  font-size: 13px;
+  border-bottom: 1px solid var(--banner-line);
+}
+
+.messages {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.emptyChat,
+.workingLine,
+.mutedText {
+  font-size: 13px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.workingLine {
+  margin-left: 42px;
+}
+
+.userRow {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.userBubble {
+  max-width: 560px;
+  padding: 12px 16px;
+  border-radius: 14px 14px 4px 14px;
+  background: var(--accent);
+  color: #ffffff;
+  font-size: 14px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.botRow {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.botBody {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-width: 600px;
+  min-width: 0;
+}
+
+.botMeta {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+}
+
+.botWho {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.botTime {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.botBubble {
+  padding: 12px 16px;
+  border-radius: 4px 14px 14px 14px;
+  background: var(--bubble);
+  font-size: 14px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.activityCard,
+.approvalCard,
+.errorCard {
+  margin-left: 42px;
+  max-width: 600px;
+  border-radius: 12px;
+  background: #ffffff;
+  display: flex;
+  flex-direction: column;
+}
+
+.activityCard {
+  border: 1px solid var(--line);
+  padding: 12px 14px;
+  gap: 8px;
+}
+
+.cardLabel {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.activityList {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--body-ink);
+  overflow-wrap: anywhere;
+}
+
+.approvalCard {
+  border: 1.5px solid var(--ink);
+  padding: 16px;
+  gap: 12px;
+}
+
+.approvalLabel {
+  color: var(--approval-ink);
+}
+
+.approvalAction {
+  font-size: 14px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+}
+
+.approvalButtons {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.approvalOutcome {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.errorCard {
+  border: 1px solid var(--error-line);
+  background: var(--error-bg);
+  color: var(--error-ink);
+  padding: 12px 14px;
+  font-size: 13px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.composer {
+  padding: 16px 24px 20px;
+  border-top: 1px solid var(--line);
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  background: var(--chat);
+}
+
+.composerInput {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 48px;
+  padding: 0 16px;
+  border-radius: 12px;
+  border: 1px solid var(--control-line);
+  background: #ffffff;
+}
+
+.composerInput:disabled {
+  background: var(--ground);
+}
+
+.details {
+  width: 304px;
+  flex: none;
+  border-left: 1px solid var(--line);
+  background: var(--ground);
+  padding: 24px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+  overflow-y: auto;
+}
+
+.detailsClose {
+  display: none;
+}
+
+.detailSection {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.sectionHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 24px;
+}
+
+.sectionHead .linkButton {
+  min-height: 32px;
+  margin: -6px -6px -6px 0;
+  padding: 6px;
+  box-sizing: content-box;
+}
+
+.detailText {
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.detailText.small {
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.autonomy {
+  margin-top: auto;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.chip {
+  padding: 5px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--control-line);
+  background: var(--chat);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.memoryList {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.memoryItem {
+  font-size: 13px;
+  line-height: 1.5;
+  padding: 10px 12px 2px;
+  border-radius: 10px;
+  background: var(--chat);
+  border: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+}
+
+.memoryItem:has(form) {
+  padding-bottom: 10px;
+}
+
+.memoryText {
+  overflow-wrap: anywhere;
+}
+
+.memoryMeta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12px;
+}
+
+.memoryMeta .linkButton {
+  font-size: 12px;
+}
+
+.addMemory {
+  display: flex;
+  gap: 8px;
+}
+
+@media (max-width: 1100px) {
+  .detailsToggle {
+    display: inline-block;
+  }
+
+  .details {
+    display: none;
+  }
+
+  .details.open {
+    display: flex;
+    position: fixed;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 10;
+    box-shadow: -12px 0 32px rgba(28, 27, 25, 0.18);
+  }
+
+  .details.open .detailsClose {
+    display: block;
+    align-self: flex-start;
+  }
+}
+
+@media (max-width: 760px) {
+  .roster {
+    width: 72px;
+    padding: 16px 8px;
+    align-items: center;
+  }
+
+  .rosterHead {
+    padding: 0;
+  }
+
+  .rosterTitle,
+  .rosterLabel,
+  .rosterText {
+    display: none;
+  }
+
+  .createForm {
+    position: fixed;
+    top: 72px;
+    left: 80px;
+    width: min(280px, calc(100vw - 96px));
+    z-index: 10;
+    box-shadow: 0 12px 32px rgba(28, 27, 25, 0.18);
+  }
+
+  .rosterRow {
+    width: 56px;
+    justify-content: center;
+    position: relative;
+  }
+
+  .rosterRow .dot {
+    position: absolute;
+    top: 8px;
+    right: 6px;
+  }
+
+  .chatHead,
+  .messages,
+  .composer {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+
+  .activityCard,
+  .approvalCard,
+  .errorCard,
+  .workingLine {
+    margin-left: 0;
+  }
+}
