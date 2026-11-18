@@ -20,6 +20,7 @@ const PatchBot = z
     model: ModelSchema.optional(),
     browser: z.boolean().optional(),
     router: z.boolean().optional(),
+    hire: z.boolean().optional(),
   })
   .strict()
 
@@ -36,7 +37,7 @@ export async function PATCH(req: Request, { params }: IdParams) {
   if (body.model !== undefined) await applyModel(bot.id, body.model)
   // Router off: back to the configured model at once. Router on takes effect with the next message.
   else if (body.router === false && bot.router && updated) await applyModel(bot.id, updated.model)
-  if (body.name !== undefined || body.job !== undefined || body.browser !== undefined) markStale(bot.id)
+  if (body.name !== undefined || body.job !== undefined || body.browser !== undefined || body.hire !== undefined) markStale(bot.id)
   if (bot.builtin !== 'chief') markChiefStale()
   return Response.json(updated)
 }

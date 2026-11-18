@@ -19,8 +19,17 @@ const BOTS_FILE = path.join(DATA_DIR, 'bots.json')
 const USAGE_FILE = path.join(DATA_DIR, 'usage.json')
 const ROUTINES_FILE = path.join(DATA_DIR, 'routines.json')
 const BOT_ID = /^[a-z0-9-]{1,40}$/
+export const MAX_BOTS = 12
 
 type Seed = Pick<Bot, 'id' | 'name' | 'job' | 'builtin'>
+
+const EGG_JOB = [
+  'Designs and hires new will-bot employees.',
+  'Asks me two or three quick preference questions first (what the employee is for, model, browser), then hires it with the hire tool.',
+  'Writes each job as one or two plain sentences.',
+  'Coding employees get the router on and work to the poteto-mode bar.',
+  'Talks casually, a little mad-scientist, in short lowercase messages.',
+].join(' ')
 
 const SEED: Seed[] = [
   { id: 'chief', name: 'Chief of Staff', job: 'Coordinates the other employees and gives me short summaries.', builtin: 'chief' },
@@ -31,6 +40,7 @@ const SEED: Seed[] = [
     builtin: null,
   },
   { id: 'builder', name: 'Builder Bot', job: 'Makes small code changes in its folder.', builtin: null },
+  { id: 'egg', name: 'Dr Egg', job: EGG_JOB, builtin: null },
 ]
 
 function defaultFolder(id: BotId): string {
@@ -44,6 +54,7 @@ function newBot(seed: Seed, createdAt: string): Bot {
     model: null,
     browser: seed.id === 'builder',
     router: seed.id === 'builder',
+    hire: seed.id === 'egg',
     paused: false,
     createdAt,
   }
@@ -82,6 +93,7 @@ export function listBots(): Bot[] {
     folder: b.folder ?? defaultFolder(b.id),
     browser: b.browser ?? b.id === 'builder',
     router: b.router ?? b.id === 'builder',
+    hire: b.hire ?? false,
   }))
 }
 
@@ -93,15 +105,20 @@ export function getBot(id: BotId): Bot | null {
   return listBots().find((b) => b.id === id) ?? null
 }
 
-export function createBot(name: string, job: string): Bot {
+export type BotSettings = Partial<Pick<Bot, 'model' | 'browser' | 'router' | 'hire'>>
+
+// Returns null when the team is full.
+export function createBot(name: string, job: string, settings: BotSettings = {}): Bot | null {
   const bots = listBots()
+  if (bots.length >= MAX_BOTS) return null
   const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 30) || 'bot'
-  const bot = newBot({ id: `${slug}-${randomUUID().slice(0, 4)}`, name, job, builtin: null }, new Date().toISOString())
+  const id = `${slug}-${randomUUID().slice(0, 4)}`
+  const bot = { ...newBot({ id, name, job, builtin: null }, new Date().toISOString()), ...settings }
   saveBots([...bots, bot])
   return bot
 }
 
-export type BotPatch = Partial<Pick<Bot, 'name' | 'job' | 'paused' | 'folder' | 'model' | 'browser' | 'router'>>
+export type BotPatch = Partial<Pick<Bot, 'name' | 'job' | 'paused' | 'folder' | 'model' | 'browser' | 'router' | 'hire'>>
 
 export function updateBot(id: BotId, patch: BotPatch): Bot | null {
   const bots = listBots()

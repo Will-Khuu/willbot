@@ -27,11 +27,12 @@ Other scripts:
 
 ## Starter employees
 
-The first start creates three employees.
+The first start creates four employees.
 
 - **Chief of Staff** coordinates the others and gives you short summaries. Its team is every other employee that is not paused. It delegates with Claude Code's Agent tool, using an employee's id as the subagent type. A teammate runs inside the Chief's session with its own job, memory, model and browser setting.
 - **Research Bot** researches a topic on the web and writes a short brief with sources to its folder.
 - **Builder Bot** makes small code changes in its folder. Its browser and model router are on.
+- **Dr Egg** designs new employees. It asks you a few preference questions, then hires them with its `hire` tool. It talks casually, in short lowercase messages, and turns the router on for coding employees. Can hire is on.
 
 ## Per-employee settings
 
@@ -40,6 +41,7 @@ Set these in the details panel.
 - **Working folder.** The session's working directory. It must be an absolute path to a folder that exists. The default is `data/workspaces/<id>`. Claude Code keeps conversations per folder, so changing it closes the session and starts a new conversation in the new folder.
 - **Model.** Default uses your Claude Code model. Haiku, Sonnet and Opus pick that model. A change applies to the live session at once. With the router on, the field shows Router and is locked.
 - **Pick the model per task (pstack table).** Turns on the model router, described below. Off by default, on for Builder Bot.
+- **Can hire new employees.** Gives the employee a `hire` tool that adds an employee with a name, job, model, browser and router setting. The new employee shows in the roster at once, and the Chief's team includes it. The team still stops at 12. Off by default, on for Dr Egg. A change reopens the session.
 - **Browser.** Adds the Playwright MCP server (`@playwright/mcp@0.0.84`, headless, isolated profile), writing its output to `<folder>/.playwright`. Off by default, on for Builder Bot.
 - **Job and memory.** Both are part of the prompt. An edit reopens the session: at once if it is idle, else when its turn and background work end.
 
@@ -121,7 +123,7 @@ Everything is plain files under `./data`:
 Employees run with your Claude Code permissions and settings, exactly like a Claude Code session. Will-bot adds no extra restrictions beyond take-over and the billing guard.
 
 - **Permission mode.** If your settings name a `permissions.defaultMode`, sessions use it. If they do not, sessions run in auto mode, as your desktop sessions do. Whenever Claude Code wants a human, the chat shows the card.
-- **Take over.** A PreToolUse hook denies every tool call from a paused or deleted employee, including one working inside the Chief's session. It also denies the Chief's delegation to a paused or deleted employee. Only the employee you are talking to can use `remember`; the Chief's teammates cannot write to its memory.
+- **Take over.** A PreToolUse hook denies every tool call from a paused or deleted employee, including one working inside the Chief's session. It also denies the Chief's delegation to a paused or deleted employee. Only the employee you are talking to can use `remember` and `hire`; the Chief's teammates cannot write to its memory or hire.
 - **Plan billing only.** Employees refuse to run while `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_BASE_URL`, `CLAUDE_CODE_USE_BEDROCK`, `CLAUDE_CODE_USE_VERTEX`, or `CLAUDE_CODE_USE_FOUNDRY` is set, and the banner names the variable. The app only checks whether these are set and never reads their values.
 - **Environment.** Sessions get the server's environment, as your terminal would give it to `claude`, minus the billing variables and the ones Next and npm set for the server itself (`NODE_ENV`, `NODE_OPTIONS`, `PORT`, `INIT_CWD`, `npm_*`, `NEXT_*`, `__NEXT_*`, `TURBOPACK*`). So SSH agent, proxy and tool variables reach employees, and so does any secret in the shell that starts the server.
 - **Localhost only.** The server binds to 127.0.0.1. API requests with a foreign `Host` or `Origin` header are rejected, which blocks DNS rebinding and cross-site posts. Write requests must be `application/json`.

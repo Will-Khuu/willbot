@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { guardToolCall, REMEMBER } from './guard.ts'
+import { guardToolCall, HIRE, REMEMBER } from './guard.ts'
 
 const employees = {
   chief: { name: 'Chief of Staff', paused: false },
@@ -50,4 +50,10 @@ test('remember is only for the session owner', () => {
   assert.equal(guardToolCall(call({ toolName: REMEMBER }), lookup), null)
   assert.equal(guardToolCall(call({ toolName: REMEMBER, agentId: 'a1', agentType: 'Explore' }), lookup), null)
   assert.match(guardToolCall(call({ toolName: REMEMBER, agentId: 'a1', agentType: 'research' }), lookup), /Only the employee/)
+})
+
+test("only the session owner may hire, not the Chief's teammates", () => {
+  assert.equal(guardToolCall(call({ toolName: HIRE }), lookup), null)
+  assert.equal(guardToolCall(call({ toolName: HIRE, agentId: 'a1', agentType: 'general-purpose' }), lookup), null)
+  assert.match(guardToolCall(call({ toolName: HIRE, agentId: 'a1', agentType: 'research' }), lookup), /can hire/)
 })

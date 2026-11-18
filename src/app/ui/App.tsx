@@ -152,7 +152,7 @@ export function App() {
     await refreshChat(selectedId)
   }
 
-  const patch = (body: { folder?: string; model?: Model; browser?: boolean; router?: boolean }) => async () => {
+  const patch = (body: { folder?: string; model?: Model; browser?: boolean; router?: boolean; hire?: boolean }) => async () => {
     await api.patchBot(selectedId, body)
     await refreshBots()
   }
@@ -226,6 +226,7 @@ export function App() {
             onSaveModel={(model) => run(patch({ model }))()}
             onSaveBrowser={(browser) => run(patch({ browser }))()}
             onSaveRouter={(router) => run(patch({ router }))()}
+            onSaveHire={(hire) => run(patch({ hire }))()}
             onDelete={async () => {
               await api.deleteBot(bot.id)
               setSelectedId('chief')

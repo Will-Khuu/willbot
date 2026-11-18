@@ -12,7 +12,7 @@ export const ModelSchema = z.enum(MODELS).nullable()
 export type Model = z.infer<typeof ModelSchema>
 
 // Unknown keys from older files (tools, access) are dropped by z.object.
-// folder, browser and router have per-bot defaults that store.ts fills in.
+// folder, browser, router and hire have per-bot defaults that store.ts fills in.
 export const StoredBotSchema = z.object({
   id: z.string(),
   name: z.string(),
@@ -21,6 +21,7 @@ export const StoredBotSchema = z.object({
   model: ModelSchema.default(null),
   browser: z.boolean().optional(),
   router: z.boolean().optional(),
+  hire: z.boolean().optional(),
   paused: z.boolean(),
   builtin: z.literal('chief').nullable(),
   createdAt: z.string(),

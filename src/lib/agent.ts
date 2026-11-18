@@ -22,7 +22,7 @@ import {
 import { classify } from './classify'
 import { detailInput, detailOutput } from './detail'
 import { sdkEnv } from './env'
-import { actorOf, guardToolCall, isDelegation, REMEMBER } from './guard'
+import { actorOf, guardToolCall, HIRE, isDelegation, REMEMBER } from './guard'
 import { parseQuestions } from './questions'
 import { aliasOf, decideRoute, isNewTask, loadRoleTables, resolveModel, type Alias, type Route } from './router'
 import {
@@ -38,8 +38,8 @@ import {
 } from './runtime'
 import { applyTaskCall, parseTaskCall, TASK_TOOLS, type TaskCall, type TaskEntry } from './tasks'
 import { initialSession, isQuiet, isWorking, reduce, shouldRecycle, type SessionEvent } from './session'
-import { appendMemory, ensureFolder, getBot, listBots, readChat, readMemory, setSessionId, upsertChatItem } from './store'
-import type { ActivityItem, ApprovalItem, Bot, BotId, ChatItem, Model, Question, QuestionItem, RouteItem, TasksItem } from './types'
+import { appendMemory, createBot, ensureFolder, getBot, listBots, MAX_BOTS, readChat, readMemory, setSessionId, upsertChatItem } from './store'
+import { MODELS, type ActivityItem, type ApprovalItem, type Bot, type BotId, type ChatItem, type Model, type Question, type QuestionItem, type RouteItem, type TasksItem } from './types'
 
 const CONNECT_WAIT_MS = 12_000
 const IDLE_CLOSE_MS = 15 * 60 * 1000
@@ -53,6 +53,13 @@ function employeeBlock(bot: Bot, opts: { canRemember: boolean; team?: Bot[] }): 
   ]
   if (opts.canRemember) {
     lines.push(`When the user tells you a durable fact or preference, save it with the ${REMEMBER} tool.`)
+  }
+  if (opts.canRemember && bot.hire) {
+    const others = listBots().filter((b) => b.id !== bot.id)
+    lines.push(
+      `You can add employees to will-bot with the ${HIRE} tool, up to ${MAX_BOTS} in all. Ask the user what they want before hiring, with AskUserQuestion when there are choices.`,
+      `Current employees: ${others.map((b) => `${b.name} (${b.job})`).join('; ') || 'none'}`,
+    )
   }
   if (opts.team?.length) {
     lines.push(
@@ -72,7 +79,29 @@ function playwright(folder: string): McpStdioServerConfig {
   }
 }
 
-function rememberServer(botId: BotId) {
+function text(t: string) {
+  return { content: [{ type: 'text' as const, text: t }] }
+}
+
+const hireTool = tool(
+  'hire',
+  'Add a new employee to will-bot. It appears in the roster at once with its own session, memory and working folder.',
+  {
+    name: z.string().trim().min(1).max(40).describe('Short display name, for example "Inbox Bot".'),
+    job: z.string().trim().min(1).max(500).describe('One or two plain sentences: what the employee does and how.'),
+    model: z.enum(MODELS).nullable().default(null).describe('null uses the user\'s Claude Code model.'),
+    browser: z.boolean().default(false).describe('Give it a headless Playwright browser.'),
+    router: z.boolean().default(false).describe('Pick its model per task from the pstack table. Good for coding employees.'),
+  },
+  async ({ name, job, model, browser, router }) => {
+    const bot = createBot(name, job, { model, browser, router })
+    if (!bot) return { ...text(`The team is full (${MAX_BOTS} employees). Ask the user to delete one first.`), isError: true }
+    markChiefStale()
+    return text(`Hired ${bot.name} (id ${bot.id}).`)
+  },
+)
+
+function willbotServer(bot: Bot) {
   return createSdkMcpServer({
     name: 'willbot',
     version: '0.1.0',
@@ -82,10 +111,11 @@ function rememberServer(botId: BotId) {
         'Save one durable fact or preference to your memory. It is loaded into every future conversation.',
         { note: z.string().min(1).max(500).describe('One short sentence to remember.') },
         async ({ note }) => {
-          appendMemory(botId, note)
-          return { content: [{ type: 'text', text: 'Saved to memory.' }] }
+          appendMemory(bot.id, note)
+          return text('Saved to memory.')
         },
       ),
+      ...(bot.hire ? [hireTool] : []),
     ],
   })
 }
@@ -138,6 +168,7 @@ const ACTIVITY: Record<string, (input: Record<string, unknown>, nameOf: (id: str
   AskUserQuestion: () => 'Asked you a question',
   ExitPlanMode: () => 'Shared a plan',
   [REMEMBER]: (i) => `Remembered: ${short(str(i, 'note'), 60)}`,
+  [HIRE]: (i) => `Hired ${short(str(i, 'name'), 40)}`,
 }
 
 // mcp__claude_ai_Google_Drive__search_files -> "Google Drive: search_files"
@@ -338,7 +369,7 @@ function open(bot: Bot, model: Alias | null): LiveSession {
     additionalDirectories: teamFolders,
     resume: chat.sessionId ?? undefined,
     model: model ?? bot.model ?? undefined,
-    mcpServers: { willbot: rememberServer(bot.id), ...(bot.browser ? { playwright: playwright(cwd) } : {}) },
+    mcpServers: { willbot: willbotServer(bot), ...(bot.browser ? { playwright: playwright(cwd) } : {}) },
     agents: teamBots.length ? agentDefinitions(teamBots) : undefined,
     hooks: { PreToolUse: [{ hooks: [guard] }] },
     canUseTool,

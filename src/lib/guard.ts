@@ -1,6 +1,7 @@
 import type { BotId } from './types'
 
 export const REMEMBER = 'mcp__willbot__remember'
+export const HIRE = 'mcp__willbot__hire'
 
 export type Employee = { name: string; paused: boolean }
 export type ToolCall = {
@@ -45,5 +46,6 @@ export function guardToolCall(call: ToolCall, lookup: (id: BotId) => Employee | 
     }
   }
   if (call.toolName === REMEMBER && actor !== call.ownerId) return 'Only the employee the user is talking to can remember.'
+  if (call.toolName === HIRE && actor !== call.ownerId) return 'Only the employee the user is talking to can hire.'
   return null
 }

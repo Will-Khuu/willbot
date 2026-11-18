@@ -20,8 +20,8 @@ const CreateBot = z.object({
 export async function POST(req: Request) {
   const body = await parseBody(req, CreateBot)
   if (body instanceof Response) return body
-  if (botViews().length >= 12) return error(400, 'That is plenty of bots for v1.')
   const bot = createBot(body.name, body.job)
+  if (!bot) return error(400, 'That is plenty of bots for v1.')
   markChiefStale()
   return Response.json(bot, { status: 201 })
 }

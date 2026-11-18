@@ -17,6 +17,7 @@ type Props = {
   onSaveModel: (model: Model) => Promise<void>
   onSaveBrowser: (browser: boolean) => Promise<void>
   onSaveRouter: (router: boolean) => Promise<void>
+  onSaveHire: (hire: boolean) => Promise<void>
   onDelete: () => Promise<void>
 }
 
@@ -99,7 +100,7 @@ export function Details(props: Props) {
     setNewNote('')
   }
 
-  const tools = caps && [...setupChips(caps), ...(bot.browser ? ['Browser'] : []), 'Memory']
+  const tools = caps && [...setupChips(caps), ...(bot.browser ? ['Browser'] : []), ...(bot.hire ? ['Hiring'] : []), 'Memory']
 
   return (
     <aside id="details" className={`details${open ? ' open' : ''}`} aria-label={`${bot.name} details`}>
@@ -189,6 +190,10 @@ export function Details(props: Props) {
         <label className="option">
           <input type="checkbox" checked={bot.browser} onChange={(e) => void props.onSaveBrowser(e.target.checked)} />
           <span>Browser (Playwright, headless)</span>
+        </label>
+        <label className="option">
+          <input type="checkbox" checked={bot.hire} onChange={(e) => void props.onSaveHire(e.target.checked)} />
+          <span>Can hire new employees</span>
         </label>
       </section>
 

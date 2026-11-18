@@ -27,7 +27,7 @@ export const api = {
   createBot: (name: string, job: string) => call<BotView>('/api/bots', { method: 'POST', json: { name, job } }),
   patchBot: (
     id: string,
-    patch: { job?: string; paused?: boolean; folder?: string; model?: Model; browser?: boolean; router?: boolean },
+    patch: { job?: string; paused?: boolean; folder?: string; model?: Model; browser?: boolean; router?: boolean; hire?: boolean },
   ) =>
     call<BotView>(`/api/bots/${id}`, { method: 'PATCH', json: patch }),
   capabilities: () => call<Capabilities>('/api/capabilities'),
