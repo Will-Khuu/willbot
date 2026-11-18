@@ -2,6 +2,8 @@ import { randomUUID } from 'node:crypto'
 import type { Query, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
 import type { Alias } from './router'
 import { delegatedBots, isWorking, type SessionState } from './session'
+import { readUsage, writeUsage } from './store'
+import { markRejected, mergeUsage, parseLimitError, parseRateLimit, type Usage } from './usage'
 import type { Answers, Bot, BotId, BotStatus, BotView, Capabilities, Question, StreamEvent } from './types'
 
 export class AsyncQueue<T> implements AsyncIterable<T> {
@@ -73,6 +75,8 @@ type Runtime = {
   // Each employee's sends run in order, so routes and messages never reorder.
   sendTail: Map<BotId, Promise<void>>
   capabilities?: { at: number; value: Promise<Capabilities> }
+  // Plan usage from the latest rate_limit_event; undefined until read from data/usage.json.
+  usage?: Usage | null
 }
 
 export const DECISION_TIMEOUT_MS = 10 * 60 * 1000
@@ -202,4 +206,25 @@ export function viewBot(bot: Bot, names: Map<BotId, string>): BotView {
     idle: 'Idle',
   }[status]
   return { ...bot, status, statusLine, delegatedBy: delegator }
+}
+
+export function currentUsage(): Usage | null {
+  if (rt.usage === undefined) rt.usage = readUsage()
+  return rt.usage
+}
+
+function setUsage(usage: Usage): void {
+  rt.usage = usage
+  writeUsage(usage)
+}
+
+// Every model call reports the plan's rate limits; there is no other way to ask.
+export function noteRateLimit(info: unknown): void {
+  const next = parseRateLimit(info)
+  if (next) setUsage(mergeUsage(currentUsage(), next))
+}
+
+export function noteLimitError(text: string): void {
+  const hit = parseLimitError(text, new Date())
+  if (hit) setUsage(markRejected(currentUsage(), hit, new Date().toISOString()))
 }

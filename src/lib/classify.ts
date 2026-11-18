@@ -1,5 +1,6 @@
 import { query } from '@anthropic-ai/claude-agent-sdk'
 import { sdkEnv } from './env'
+import { noteRateLimit } from './runtime'
 import { CLASSIFICATION_SCHEMA, classifierPrompt, parseClassification, type Classification } from './router'
 
 const CLASSIFY_TIMEOUT_MS = 8_000
@@ -32,6 +33,7 @@ export async function classify(context: string, message: string, signal: AbortSi
   })
   try {
     for await (const msg of q) {
+      if (msg.type === 'rate_limit_event') noteRateLimit(msg.rate_limit_info)
       if (msg.type === 'result') return msg.subtype === 'success' ? parseClassification(msg.structured_output) : null
     }
     return null

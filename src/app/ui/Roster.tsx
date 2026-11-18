@@ -2,16 +2,20 @@
 
 import { useState, type FormEvent } from 'react'
 import type { BotView } from '@/lib/types'
+import type { Usage } from '@/lib/usage'
 import { DOT, initialsOf, tintOf } from './look'
+import { UsageMeter } from './UsageMeter'
 
 type Props = {
   bots: BotView[]
   selectedId: string
+  usage: Usage | null
+  now: number
   onSelect: (id: string) => void
   onCreate: (name: string, job: string) => Promise<void>
 }
 
-export function Roster({ bots, selectedId, onSelect, onCreate }: Props) {
+export function Roster({ bots, selectedId, usage, now, onSelect, onCreate }: Props) {
   const [creating, setCreating] = useState(false)
   const [name, setName] = useState('')
   const [job, setJob] = useState('')
@@ -104,6 +108,8 @@ export function Roster({ bots, selectedId, onSelect, onCreate }: Props) {
           </button>
         ))}
       </div>
+
+      <UsageMeter usage={usage} now={now} />
     </nav>
   )
 }

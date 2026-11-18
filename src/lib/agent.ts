@@ -25,7 +25,17 @@ import { sdkEnv } from './env'
 import { actorOf, guardToolCall, isDelegation, REMEMBER } from './guard'
 import { parseQuestions } from './questions'
 import { aliasOf, decideRoute, isNewTask, loadRoleTables, resolveModel, type Alias, type Route } from './router'
-import { AsyncQueue, awaitDecision, delegatedBy, expireDecisions, publish, rt, type LiveSession } from './runtime'
+import {
+  AsyncQueue,
+  awaitDecision,
+  delegatedBy,
+  expireDecisions,
+  noteLimitError,
+  noteRateLimit,
+  publish,
+  rt,
+  type LiveSession,
+} from './runtime'
 import { applyTaskCall, parseTaskCall, TASK_TOOLS, type TaskCall, type TaskEntry } from './tasks'
 import { initialSession, isQuiet, isWorking, reduce, shouldRecycle, type SessionEvent } from './session'
 import { appendMemory, ensureFolder, getBot, listBots, readChat, readMemory, setSessionId, upsertChatItem } from './store'
@@ -351,6 +361,7 @@ function open(bot: Bot, model: Alias | null): LiveSession {
   }
 
   const fail = (text: string) => {
+    noteLimitError(text)
     const hint = /authenticat|oauth|log ?in/i.test(text)
       ? '\nLog in with your Claude plan: run `claude` in a terminal, then /login, and try again.'
       : ''
@@ -377,7 +388,12 @@ function open(bot: Bot, model: Alias | null): LiveSession {
       setSessionId(bot.id, msg.session_id)
     }
     if (msg.type === 'assistant') {
-      if (msg.error) return
+      if (msg.error) {
+        if (msg.error === 'rate_limit') {
+          noteLimitError(msg.message.content.flatMap((b) => (b.type === 'text' ? [b.text] : [])).join('\n'))
+        }
+        return
+      }
       const speaker = speakerOf(msg.parent_tool_use_id)
       for (const block of msg.message.content) {
         if (block.type === 'text' && block.text.trim()) {
@@ -433,6 +449,7 @@ function open(bot: Bot, model: Alias | null): LiveSession {
       }
       return
     }
+    if (msg.type === 'rate_limit_event') return noteRateLimit(msg.rate_limit_info)
     if (msg.type !== 'system') return
     switch (msg.subtype) {
       case 'session_state_changed':

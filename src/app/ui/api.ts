@@ -1,4 +1,5 @@
 import type { Answers, BotView, Capabilities, Chat, ChatItem, MemoryEntry, Model } from '@/lib/types'
+import type { Usage } from '@/lib/usage'
 
 async function call<T>(url: string, init?: RequestInit & { json?: unknown }): Promise<T> {
   const res = await fetch(url, {
@@ -29,6 +30,7 @@ export const api = {
   ) =>
     call<BotView>(`/api/bots/${id}`, { method: 'PATCH', json: patch }),
   capabilities: () => call<Capabilities>('/api/capabilities'),
+  usage: () => call<Usage | null>('/api/usage'),
   deleteBot: (id: string) => call<null>(`/api/bots/${id}`, { method: 'DELETE' }),
   chat: (id: string) => call<Chat>(`/api/chats/${id}`),
   send: (botId: string, message: string, model: NonNullable<Model> | null) =>

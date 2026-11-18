@@ -11,9 +11,11 @@ import {
   type ChatItem,
   type MemoryEntry,
 } from './types'
+import { UsageSchema, type Usage } from './usage'
 
 const DATA_DIR = path.join(process.cwd(), 'data')
 const BOTS_FILE = path.join(DATA_DIR, 'bots.json')
+const USAGE_FILE = path.join(DATA_DIR, 'usage.json')
 const BOT_ID = /^[a-z0-9-]{1,40}$/
 
 type Seed = Pick<Bot, 'id' | 'name' | 'job' | 'builtin'>
@@ -166,4 +168,18 @@ export function appendMemory(id: BotId, note: string): MemoryEntry {
 export function ensureFolder(bot: Bot): string {
   if (bot.folder === defaultFolder(bot.id)) fs.mkdirSync(bot.folder, { recursive: true })
   return fs.realpathSync(bot.folder)
+}
+
+export function readUsage(): Usage | null {
+  const raw = readText(USAGE_FILE)
+  if (raw === null) return null
+  try {
+    return UsageSchema.parse(JSON.parse(raw))
+  } catch {
+    return null
+  }
+}
+
+export function writeUsage(usage: Usage): void {
+  writeAtomic(USAGE_FILE, JSON.stringify(usage, null, 2) + '\n')
 }

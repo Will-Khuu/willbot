@@ -193,6 +193,8 @@ type Props = {
   loading: boolean
   working: boolean
   blocked: boolean
+  // The plan's usage limit; blocks is false when its reset time is unknown.
+  limit: { text: string; blocks: boolean } | null
   detailsOpen: boolean
   onSend: (text: string, model: NonNullable<Model> | null) => Promise<void>
   onStop: () => Promise<void>
@@ -203,7 +205,7 @@ type Props = {
 }
 
 export function ChatPane(props: Props) {
-  const { bot, bots, items, working, blocked } = props
+  const { bot, bots, items, working, blocked, limit } = props
   const [draft, setDraft] = useState('')
   const [pick, setPick] = useState<NonNullable<Model> | null>(null)
   const scroller = useRef<HTMLDivElement>(null)
@@ -221,7 +223,7 @@ export function ChatPane(props: Props) {
   const submit = (e: FormEvent) => {
     e.preventDefault()
     const text = draft.trim()
-    if (!text || closed) return
+    if (!text || closed || limit?.blocks) return
     setDraft('')
     setPick(null)
     void props.onSend(text, pick)
@@ -257,6 +259,12 @@ export function ChatPane(props: Props) {
           Details
         </button>
       </header>
+
+      {limit && (
+        <div className="takeoverBanner limitBanner" role="status">
+          {limit.text}
+        </div>
+      )}
 
       {bot.paused && (
         <div className="takeoverBanner" role="status">
@@ -393,7 +401,12 @@ export function ChatPane(props: Props) {
             </option>
           ))}
         </select>
-        <button className="sendButton" type="submit" disabled={!draft.trim() || closed}>
+        <button
+          className="sendButton"
+          type="submit"
+          disabled={!draft.trim() || closed || limit?.blocks}
+          title={limit?.blocks ? limit.text : undefined}
+        >
           Send
         </button>
       </form>

@@ -2,10 +2,12 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Answers, BotView, ChatItem, MemoryEntry, Model, StreamEvent } from '@/lib/types'
+import type { Usage } from '@/lib/usage'
 import { api, localError } from './api'
 import { Roster } from './Roster'
 import { ChatPane } from './ChatPane'
 import { Details } from './Details'
+import { limitNotice } from './UsageMeter'
 
 function upsertMissing(items: ChatItem[], item: ChatItem): ChatItem[] {
   return items.some((x) => x.id === item.id) ? items : [...items, item]
@@ -26,16 +28,26 @@ export function App() {
   const [memory, setMemory] = useState<MemoryEntry[]>([])
   const [billingVar, setBillingVar] = useState<string | null>(null)
   const [detailsOpen, setDetailsOpen] = useState(false)
+  const [usage, setUsage] = useState<Usage | null>(null)
+  const [now, setNow] = useState(() => Date.now())
   const selectedRef = useRef(selectedId)
   selectedRef.current = selectedId
 
   const bot = bots.find((b) => b.id === selectedId) ?? null
   const busy = bots.some((b) => b.status !== 'idle')
+  const limit = limitNotice(usage, now)
 
   const refreshBots = useCallback(async () => {
     try {
       setBots(await api.bots())
     } catch {}
+  }, [])
+
+  const refreshUsage = useCallback(async () => {
+    try {
+      setUsage(await api.usage())
+    } catch {}
+    setNow(Date.now())
   }, [])
 
   const refreshChat = useCallback(async (id: string) => {
@@ -63,6 +75,18 @@ export function App() {
     return () => clearInterval(t)
   }, [busy, refreshBots])
 
+  // Usage only arrives with real model calls, so poll faster while someone works.
+  useEffect(() => {
+    void refreshUsage()
+    const t = setInterval(refreshUsage, busy ? 15_000 : 60_000)
+    return () => clearInterval(t)
+  }, [busy, refreshUsage])
+
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 30_000)
+    return () => clearInterval(t)
+  }, [])
+
   useEffect(() => {
     setItems(null)
     setMemory([])
@@ -82,13 +106,14 @@ export function App() {
       if (e.type === 'status') {
         void refreshBots()
         void refreshMemory(id)
+        void refreshUsage()
         return
       }
       setItems((cur) => upsert(cur ?? [], e.item))
       if (e.item.kind === 'approval' || e.item.kind === 'question') void refreshBots()
     }
     return () => source.close()
-  }, [selectedId, refreshBots, refreshChat, refreshMemory])
+  }, [selectedId, refreshBots, refreshChat, refreshMemory, refreshUsage])
 
   const send = async (text: string, model: NonNullable<Model> | null) => {
     const id = selectedId
@@ -154,6 +179,8 @@ export function App() {
         <Roster
           bots={bots}
           selectedId={selectedId}
+          usage={usage}
+          now={now}
           onSelect={(id) => {
             setSelectedId(id)
             setDetailsOpen(false)
@@ -172,6 +199,7 @@ export function App() {
             loading={items === null}
             working={bot.status === 'working' || bot.status === 'needs_approval'}
             blocked={billingVar !== null}
+            limit={limit}
             onSend={send}
             onStop={run(() => api.stop(bot.id))}
             onTakeOver={run(() => api.patchBot(bot.id, { paused: !bot.paused }))}

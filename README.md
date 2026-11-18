@@ -23,7 +23,7 @@ Other scripts:
 
 - `npm run typecheck` runs `tsc --noEmit`.
 - `npm run build` builds for production. `npm start` serves the build on 127.0.0.1.
-- `npm test` checks the take-over rules, the session state machine, question answer validation, the model router, the task list, and activity detail truncation.
+- `npm test` checks the take-over rules, the session state machine, question answer validation, the model router, the task list, activity detail truncation, and plan usage parsing.
 
 ## Starter employees
 
@@ -85,6 +85,15 @@ Each activity line opens to show what the tool was given and what it returned: t
 
 An unanswered card expires after 10 minutes and counts as a no. Cards live in server memory, so restarting the server expires them.
 
+## Usage meter
+
+The bottom of the roster shows how much of your Claude plan is used.
+
+- **Source.** Every model call reports the plan's rate limits, from employees and from the router's classifier. There is no way to ask on demand, so the meter shows what the latest call reported. It reads "Usage shows after the first message." until then.
+- **Rows.** "5-hour" and "Weekly" each show a bar, a percent and the reset time. The bar turns amber at 70% and red above 90%, with "Getting close", "Almost out" or "Limit reached" in text. "Updated 3 min ago" says how old the numbers are. The narrow roster shows one ring; its label reads the full status.
+- **Limit reached.** When a call is refused, or a turn fails with Claude Code's "You've hit your 5-hour limit" error, a banner across the chat says when employees can work again, and Send is off until then. Stop and Take over still work. If the reset time is unknown, the banner shows but Send stays on.
+- **Updates.** The UI asks `GET /api/usage` every 15 seconds while an employee is working, every 60 seconds otherwise, and when a turn ends.
+
 ## Where data lives
 
 Everything is plain files under `./data`:
@@ -93,6 +102,7 @@ Everything is plain files under `./data`:
 - `data/chats/<id>.json` holds each transcript and the Claude Code session id used to resume it.
 - `data/memory/<id>.md` holds each employee's memory, one `- YYYY-MM-DD: note` line per entry. You can edit it in the details panel, and employees add to it with their `remember` tool.
 - `data/workspaces/<id>/` is each employee's default working folder.
+- `data/usage.json` holds the last plan usage, so a restart still shows it.
 
 ## Safety
 
