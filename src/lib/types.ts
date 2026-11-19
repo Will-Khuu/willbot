@@ -124,4 +124,10 @@ export type StreamEvent =
 export type MemoryEntry = { date: string; text: string }
 
 export type Connector = { name: string; status: string; tools: number }
-export type Capabilities = { plugins: string[]; skills: string[]; connectors: Connector[] } | { error: string }
+export const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'] as const
+export type Effort = (typeof EFFORTS)[number]
+// As Claude Code reports each model: its name with version (opus → "Opus 5.5")
+// and the effort levels it supports.
+export type ModelOption = { name: string; efforts: Effort[] }
+export type ModelCatalog = Partial<Record<NonNullable<Model> | 'fable' | 'default', ModelOption>>
+export type Capabilities = { plugins: string[]; skills: string[]; connectors: Connector[]; models: ModelCatalog } | { error: string }

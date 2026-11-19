@@ -1566,36 +1566,137 @@ button.footRow:hover {
   cursor: not-allowed;
 }
 
-.modelPick {
+.modelMenu {
   position: relative;
   flex: none;
-  display: inline-flex;
-  align-items: center;
-  color: var(--muted);
 }
 
-.modelPick select {
-  appearance: none;
+.modelButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   height: 32px;
-  padding: 0 22px 0 10px;
+  padding: 0 10px;
   border: 0;
   border-radius: var(--radius-pill);
   background: transparent;
-  color: var(--muted);
+  color: var(--ink-2);
   font-size: var(--text-sm);
   font-weight: 500;
+  white-space: nowrap;
   cursor: pointer;
 }
 
-.modelPick select:hover:not(:disabled) {
+.modelButton:hover:not(:disabled),
+.modelButton[aria-expanded='true'] {
   background: var(--surface-hover);
   color: var(--ink);
 }
 
-.modelPick svg {
+.modelButtonEffort,
+.modelButton svg {
+  color: var(--muted);
+}
+
+.menuPanel {
   position: absolute;
-  right: 8px;
-  pointer-events: none;
+  right: 0;
+  bottom: calc(100% + 10px);
+  z-index: 30;
+  min-width: 300px;
+  padding: var(--space-1);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-md);
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-pop);
+}
+
+/* Effort opens beside the menu, level with its bottom edge. */
+.subMenu {
+  right: calc(100% + 6px);
+  bottom: -5px;
+  min-width: 180px;
+}
+
+.menuItem {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  min-height: 40px;
+  padding: 0 var(--space-3);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--text-base);
+  text-align: left;
+  cursor: pointer;
+}
+
+.menuItem:hover:not([aria-disabled='true']),
+.menuItem:focus-visible,
+.menuItem[aria-expanded='true'] {
+  background: var(--surface-hover);
+  outline: none;
+}
+
+.menuItem[aria-disabled='true'] {
+  cursor: default;
+}
+
+.menuItem[aria-disabled='true'] .menuLabel > span:first-child {
+  color: var(--muted);
+}
+
+.menuItem > svg {
+  margin-left: auto;
+  flex: none;
+}
+
+.menuItem[role='menuitemradio'] > svg {
+  color: var(--accent);
+}
+
+.menuLabel {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.menuHint {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: var(--text-sm);
+}
+
+.menuItem[aria-haspopup] .menuHint {
+  margin-right: 0;
+}
+
+.menuItem[aria-haspopup] > svg {
+  margin-left: 0;
+  color: var(--muted);
+}
+
+.menuBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-sunk);
+  color: var(--muted);
+  font-size: var(--text-xs, 12px);
+  white-space: nowrap;
+}
+
+.menuDivider {
+  height: 1px;
+  margin: var(--space-1) var(--space-2);
+  background: var(--hairline);
 }
 
 .mentionList {

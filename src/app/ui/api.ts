@@ -1,5 +1,5 @@
 import type { FileHit, Upload } from '@/lib/context'
-import type { Answers, BotView, Capabilities, Chat, ChatItem, MemoryEntry, Model } from '@/lib/types'
+import type { Answers, BotView, Capabilities, Chat, ChatItem, Effort, MemoryEntry, Model } from '@/lib/types'
 import type { Routine, Schedule } from '@/lib/routines'
 import type { Usage } from '@/lib/usage'
 import type { RecentFile } from '@/lib/workspace'
@@ -47,8 +47,8 @@ export const api = {
   usage: () => call<Usage | null>('/api/usage'),
   deleteBot: (id: string) => call<null>(`/api/bots/${id}`, { method: 'DELETE' }),
   chat: (id: string) => call<Chat>(`/api/chats/${id}`),
-  send: (botId: string, message: string, attachments: string[], model: NonNullable<Model> | null) =>
-    call<{ ok: true }>('/api/chat', { method: 'POST', json: { botId, message, attachments, model: model ?? undefined } }),
+  send: (botId: string, message: string, attachments: string[], model: NonNullable<Model> | null, effort: Effort | null) =>
+    call<{ ok: true }>('/api/chat', { method: 'POST', json: { botId, message, attachments, model: model ?? undefined, effort } }),
   upload: async (botId: string, file: File) =>
     call<Upload>(`/api/attachments?botId=${encodeURIComponent(botId)}`, {
       method: 'POST',

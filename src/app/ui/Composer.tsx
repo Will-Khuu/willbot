@@ -2,11 +2,11 @@
 
 import { useEffect, useId, useLayoutEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
 import { insertMention, MAX_ATTACHMENT_BYTES, MAX_ATTACHMENTS, mentionAt, type FileHit, type Upload } from '@/lib/context'
-import { MODEL_LABELS } from '@/lib/router'
-import { MODELS, type BotView, type Model } from '@/lib/types'
+import type { BotView, Effort, Model, ModelCatalog } from '@/lib/types'
 import { api } from './api'
 import { FileCard } from './FileCard'
 import { Icon } from './icons'
+import { ModelMenu } from './ModelMenu'
 
 type Pending = { key: string; name: string } & (
   | { state: 'uploading' }
@@ -38,14 +38,16 @@ type Props = {
   limit: { text: string; blocks: boolean } | null
   // Files dropped on the chat, handed over by the pane.
   dropped: { files: File[]; n: number } | null
-  onSend: (text: string, attachments: string[], model: NonNullable<Model> | null) => Promise<void>
+  onSend: (text: string, attachments: string[], model: NonNullable<Model> | null, effort: Effort | null) => Promise<void>
+  models: ModelCatalog
 }
 
 let nextKey = 0
 
-export function Composer({ bot, closed, limit, dropped, onSend }: Props) {
+export function Composer({ bot, closed, limit, dropped, models, onSend }: Props) {
   const [draft, setDraft] = useState('')
   const [pick, setPick] = useState<NonNullable<Model> | null>(null)
+  const [effort, setEffort] = useState<Effort | null>(null)
   const [pending, setPending] = useState<Pending[]>([])
   const [note, setNote] = useState<string | null>(null)
   const [mention, setMention] = useState<Mention | null>(null)
@@ -68,6 +70,23 @@ export function Composer({ bot, closed, limit, dropped, onSend }: Props) {
   }, [draft])
 
   useEffect(() => () => recognition.current?.stop(), [])
+
+  // Effort sticks per employee, like Claude Code's /effort, in this browser only.
+  const effortKey = `willbot.effort.${bot.id}`
+  useEffect(() => {
+    try {
+      setEffort((localStorage.getItem(effortKey) as Effort | null) ?? null)
+    } catch {
+      setEffort(null)
+    }
+  }, [effortKey])
+  const chooseEffort = (level: Effort | null) => {
+    setEffort(level)
+    try {
+      if (level) localStorage.setItem(effortKey, level)
+      else localStorage.removeItem(effortKey)
+    } catch {}
+  }
 
   useEffect(() => {
     setPending([])
@@ -191,7 +210,7 @@ export function Composer({ bot, closed, limit, dropped, onSend }: Props) {
     e.preventDefault()
     if (!canSend) return
     recognition.current?.stop()
-    void onSend(draft.trim(), ready, pick)
+    void onSend(draft.trim(), ready, pick, effort)
     setDraft('')
     setPick(null)
     setPending([])
@@ -309,25 +328,7 @@ export function Composer({ bot, closed, limit, dropped, onSend }: Props) {
             autoComplete="off"
           />
         </div>
-        <label htmlFor="composer-model" className="visuallyHidden">
-          Model for this message
-        </label>
-        <span className="modelPick">
-          <select
-            id="composer-model"
-            value={pick ?? ''}
-            disabled={closed}
-            onChange={(e) => setPick(e.target.value === '' ? null : (e.target.value as NonNullable<Model>))}
-          >
-            <option value="">Auto</option>
-            {MODELS.map((m) => (
-              <option key={m} value={m}>
-                {MODEL_LABELS[m]}
-              </option>
-            ))}
-          </select>
-          <Icon name="chevronDown" size={12} />
-        </span>
+        <ModelMenu catalog={models} pick={pick} effort={effort} disabled={closed} onPick={setPick} onEffort={chooseEffort} />
         {recording || (canDictate && !hasContent) ? (
           <button
             type="button"

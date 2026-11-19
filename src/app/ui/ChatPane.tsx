@@ -5,7 +5,7 @@ import { dividerTime, needsDivider } from '@/lib/chatlog'
 import { isImageMime, type Attachment } from '@/lib/context'
 import { routeLine } from '@/lib/router'
 import { taskCounts, type TaskStatus } from '@/lib/tasks'
-import type { ActivityItem, Answers, ApprovalItem, BotView, ChatItem, Model, QuestionItem, TasksItem } from '@/lib/types'
+import type { ActivityItem, Answers, ApprovalItem, BotView, ChatItem, Effort, Model, ModelCatalog, QuestionItem, TasksItem } from '@/lib/types'
 import { attachmentUrl } from './api'
 import { Avatar } from './Avatar'
 import { Composer } from './Composer'
@@ -253,7 +253,8 @@ type Props = {
   // The plan's usage limit; blocks is false when its reset time is unknown.
   limit: { text: string; blocks: boolean } | null
   panelOpen: boolean
-  onSend: (text: string, attachments: string[], model: NonNullable<Model> | null) => Promise<void>
+  models: ModelCatalog
+  onSend: (text: string, attachments: string[], model: NonNullable<Model> | null, effort: Effort | null) => Promise<void>
   onStop: () => Promise<void>
   onTakeOver: () => Promise<void>
   onDecide: (id: string, decision: 'allow' | 'deny') => Promise<void>
@@ -456,7 +457,7 @@ export function ChatPane(props: Props) {
 
       <div className="chatFoot">
         {tasks && <TaskCard key={tasks.id} item={tasks} working={working} />}
-        <Composer bot={bot} closed={closed} limit={limit} dropped={dropped} onSend={props.onSend} />
+        <Composer bot={bot} closed={closed} limit={limit} dropped={dropped} models={props.models} onSend={props.onSend} />
       </div>
     </main>
   )

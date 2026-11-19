@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { chatMarkdown } from '@/lib/chatlog'
-import type { Answers, BotView, Capabilities, ChatItem, MemoryEntry, Model, StreamEvent } from '@/lib/types'
+import type { Answers, BotView, Capabilities, ChatItem, Effort, MemoryEntry, Model, StreamEvent } from '@/lib/types'
 import type { Usage } from '@/lib/usage'
 import { api, localError } from './api'
 import { Roster } from './Roster'
@@ -155,10 +155,10 @@ export function App() {
     return () => source.close()
   }, [selectedId, refreshBots, refreshChat, refreshMemory, refreshUsage])
 
-  const send = async (text: string, attachments: string[], model: NonNullable<Model> | null) => {
+  const send = async (text: string, attachments: string[], model: NonNullable<Model> | null, effort: Effort | null) => {
     const id = selectedId
     try {
-      await api.send(id, text, attachments, model)
+      await api.send(id, text, attachments, model, effort)
     } catch (e) {
       if (selectedRef.current === id) setItems((cur) => [...(cur ?? []), localError((e as Error).message)])
     }
@@ -265,6 +265,7 @@ export function App() {
             onDecide={decide}
             onAnswer={answer}
             panelOpen={panelOpen}
+            models={caps && !('error' in caps) ? caps.models : {}}
             onTogglePanel={() => (panelOpen ? setPanelOpen(false) : openPanel('top'))}
             onDetails={() => openPanel('job')}
           />

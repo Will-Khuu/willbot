@@ -5,7 +5,7 @@ import { billingOverride } from '@/lib/env'
 import { error, findBot, parseBody } from '@/lib/http'
 import { delegatedBy } from '@/lib/runtime'
 import { getBot } from '@/lib/store'
-import { MODELS } from '@/lib/types'
+import { EFFORTS, MODELS } from '@/lib/types'
 import { findAttachments } from '@/lib/workspace'
 
 export const dynamic = 'force-dynamic'
@@ -18,6 +18,8 @@ const SendMessage = z
     attachments: z.array(z.string()).max(MAX_ATTACHMENTS, `At most ${MAX_ATTACHMENTS} attachments per message.`).default([]),
     // A one-message model pick from the composer; absent means Auto.
     model: z.enum(MODELS).optional(),
+    // The composer's effort level; null is the model's default, absent leaves it as is.
+    effort: z.enum(EFFORTS).nullable().optional(),
   })
   .refine((b) => b.message || b.attachments.length, 'Type a message or attach a file.')
 
@@ -44,6 +46,6 @@ export async function POST(req: Request) {
     return error(409, e instanceof Error ? e.message : String(e))
   }
   if (typeof attachments === 'string') return error(409, attachments)
-  sendMessage(bot, body.message, attachments, body.model ?? null)
+  sendMessage(bot, body.message, attachments, body.model ?? null, body.effort)
   return Response.json({ ok: true }, { status: 202 })
 }

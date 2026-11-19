@@ -2,7 +2,7 @@ import os from 'node:os'
 import { query, type SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
 import { sdkEnv } from './env'
 import { cachedCapabilities } from './runtime'
-import type { Capabilities } from './types'
+import type { Capabilities, ModelOption } from './types'
 
 const CONNECT_WAIT_MS = 12_000
 
@@ -40,7 +40,19 @@ async function probe(): Promise<Capabilities> {
       servers = await session.mcpServerStatus()
     }
     const { plugins } = await session.reloadPlugins()
+    const option = (pick: (m: (typeof init.models)[number]) => boolean): ModelOption | undefined => {
+      const m = init.models.find(pick)
+      return m && { name: m.displayName, efforts: m.supportedEffortLevels ?? [] }
+    }
+    const defaultId = init.models.find((m) => m.value === 'default')?.resolvedModel
     return {
+      models: {
+        opus: option((m) => m.value === 'opus'),
+        sonnet: option((m) => m.value === 'sonnet'),
+        fable: option((m) => m.value === 'fable'),
+        haiku: option((m) => m.value === 'haiku'),
+        default: defaultId ? option((m) => m.value !== 'default' && m.resolvedModel === defaultId) : undefined,
+      },
       plugins: plugins.filter((p) => !p.source?.endsWith('@builtin')).map((p) => p.name),
       skills: init.commands.filter((c) => !c.builtin).map((c) => c.name).toSorted(),
       connectors: servers.map((s) => ({

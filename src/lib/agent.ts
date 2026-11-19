@@ -44,7 +44,7 @@ import { applyTaskCall, parseTaskCall, TASK_TOOLS, type TaskCall, type TaskEntry
 import { initialSession, isQuiet, isWorking, reduce, shouldRecycle, type SessionEvent } from './session'
 import { appendMemory, createBot, ensureFolder, getBot, listBots, MAX_BOTS, readChat, readMemory, setSessionId, upsertChatItem } from './store'
 import { botFolders } from './workspace'
-import { MODELS, type ActivityItem, type ApprovalItem, type Bot, type BotId, type ChatItem, type Model, type Question, type QuestionItem, type RouteItem, type TasksItem } from './types'
+import { MODELS, type ActivityItem, type ApprovalItem, type Bot, type BotId, type ChatItem, type Effort, type Model, type Question, type QuestionItem, type RouteItem, type TasksItem } from './types'
 
 const CONNECT_WAIT_MS = 12_000
 const IDLE_CLOSE_MS = 15 * 60 * 1000
@@ -760,6 +760,7 @@ async function deliver(
   pick: Alias | null,
   prior: Prior,
   signal: AbortSignal,
+  effort?: Effort | null,
 ): Promise<void> {
   let bot = getBot(botId)
   if (!bot || bot.paused || signal.aborted) return
@@ -791,6 +792,13 @@ async function deliver(
     }
     rt.sessions.set(botId, live)
   }
+  if (effort !== undefined && live.effort !== effort) {
+    await live.query.applyFlagSettings({ effortLevel: effort }).then(
+      () => (live.effort = effort),
+      () => save(botId, { kind: 'error', id: newId(), text: `Couldn't set effort to ${effort ?? 'default'}; kept the current level.`, at: now() }),
+    )
+    if (!usable(live) || signal.aborted) return
+  }
   if (!live.push(userMessage(text, attachments))) {
     save(botId, { kind: 'error', id: newId(), text: "Couldn't deliver that message; please resend.", at: now() })
     return
@@ -801,7 +809,7 @@ async function deliver(
 // Opens the employee's session on first use; later messages join it, even
 // mid-turn. Routing happens before the message reaches the session, one
 // message at a time per employee.
-export function sendMessage(bot: Bot, text: string, attachments: readonly Attachment[], pick: Alias | null): void {
+export function sendMessage(bot: Bot, text: string, attachments: readonly Attachment[], pick: Alias | null, effort?: Effort | null): void {
   const chat = readChat(bot.id)
   const ongoing = chat.sessionId !== null || rt.sessions.has(bot.id) || rt.sending.has(bot.id)
   const prior: Prior = {
@@ -815,7 +823,7 @@ export function sendMessage(bot: Bot, text: string, attachments: readonly Attach
   sending.add(ctrl)
   publish(bot.id, { type: 'status' })
   const tail = (rt.sendTail.get(bot.id) ?? Promise.resolve())
-    .then(() => deliver(bot.id, text, attachments, pick, prior, ctrl.signal))
+    .then(() => deliver(bot.id, text, attachments, pick, prior, ctrl.signal, effort))
     .catch((e: unknown) => save(bot.id, { kind: 'error', id: newId(), text: e instanceof Error ? e.message : String(e), at: now() }))
     .finally(() => {
       sending.delete(ctrl)

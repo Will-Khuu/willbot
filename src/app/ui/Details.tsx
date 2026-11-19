@@ -163,6 +163,7 @@ export function Details(props: Props) {
     setNewNote('')
   }
 
+  const names = caps && !('error' in caps) ? caps.models : {}
   const tools = caps && [...setupChips(caps), ...(bot.browser ? ['Browser'] : []), ...(bot.hire ? ['Hiring'] : []), 'Memory']
 
   return (
@@ -322,10 +323,10 @@ export function Details(props: Props) {
             onChange={(e) => void props.onSaveModel(e.target.value === '' ? null : (e.target.value as NonNullable<Model>))}
           >
             {bot.router && <option value="router">Router</option>}
-            <option value="">Default (your Claude Code model)</option>
+            <option value="">Default ({names.default?.name ?? 'your Claude Code model'})</option>
             {MODELS.map((m) => (
               <option key={m} value={m}>
-                {MODEL_LABELS[m]}
+                {names[m]?.name ?? MODEL_LABELS[m]}
               </option>
             ))}
           </select>

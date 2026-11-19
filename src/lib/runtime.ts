@@ -4,7 +4,7 @@ import type { Alias } from './router'
 import { delegatedBots, isWorking, type SessionState } from './session'
 import { readUsage, writeUsage } from './store'
 import { markRejected, mergeUsage, parseLimitError, parseRateLimit, type Usage } from './usage'
-import type { Answers, Bot, BotId, BotStatus, BotView, Capabilities, Question, StreamEvent } from './types'
+import type { Answers, Bot, BotId, BotStatus, BotView, Capabilities, Effort, Question, StreamEvent } from './types'
 
 export class AsyncQueue<T> implements AsyncIterable<T> {
   private items: T[] = []
@@ -52,6 +52,8 @@ export type LiveSession = {
   idleTimer: NodeJS.Timeout | null
   // The model will-bot last set on this session; null means the employee's configured model.
   model: Alias | null
+  // The effort will-bot last set; undefined means never set (Claude Code's default).
+  effort?: Effort | null
   // Pushes into the inbox; false if the session already closed.
   push: (message: SDKUserMessage) => boolean
   // The user's Stop: interrupts the turn and drops messages queued behind it.
