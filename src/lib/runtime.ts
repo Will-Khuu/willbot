@@ -194,6 +194,12 @@ export function pendingDecisions(): { id: string; kind: DecisionKind; botId: Bot
   return [...rt.decisions].map(([id, d]) => ({ id, kind: d.kind, botId: d.botId, ownerId: d.ownerId }))
 }
 
+// The employee is mid-turn in its own chat, or has messages about to start one.
+export function busyInOwnChat(botId: BotId): boolean {
+  const phase = rt.sessions.get(botId)?.state.phase
+  return phase === 'starting' || phase === 'running' || (rt.sending.get(botId)?.size ?? 0) > 0
+}
+
 export function delegatedBy(botId: BotId): BotId | null {
   for (const [owner, live] of rt.sessions) if (delegatedBots(live.state).has(botId)) return owner
   return null

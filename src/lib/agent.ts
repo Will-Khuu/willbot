@@ -32,6 +32,7 @@ import { aliasOf, decideRoute, isNewTask, loadRoleTables, MODEL_LABELS, resolveM
 import {
   AsyncQueue,
   awaitDecision,
+  busyInOwnChat,
   delegatedBy,
   expireDecisions,
   noteLimitError,
@@ -47,6 +48,11 @@ import { botFolders } from './workspace'
 import { MODELS, type ActivityItem, type ApprovalItem, type Bot, type BotId, type ChatItem, type Effort, type Model, type Question, type QuestionItem, type RouteItem, type TasksItem } from './types'
 
 const CONNECT_WAIT_MS = 12_000
+// How long a delegation waits for a teammate busy in its own chat. The hook's
+// timeout is longer, because a timed-out hook lets the call go ahead.
+const TEAMMATE_WAIT_MS = 25 * 60 * 1000
+const TEAMMATE_HOOK_TIMEOUT_S = 30 * 60
+const TEAMMATE_POLL_MS = 1000
 const IDLE_CLOSE_MS = 15 * 60 * 1000
 
 // Other employees' names and jobs are user-written text that one employee
@@ -364,6 +370,28 @@ function open(bot: Bot, model: Alias | null, resume = true): LiveSession {
     return {}
   }
 
+  // A delegated teammate runs as a copy inside this session. While the real
+  // one is busy in its own chat, two copies would work at once, so wait.
+  const awaitTeammate: HookCallback = async (input, _id, { signal }) => {
+    if (input.hook_event_name !== 'PreToolUse') return {}
+    const target = (input.tool_input as Record<string, unknown> | undefined)?.subagent_type
+    if (typeof target !== 'string' || !team.has(target) || !busyInOwnChat(target)) return {}
+    const deny = (reason: string) => ({
+      hookSpecificOutput: { hookEventName: 'PreToolUse' as const, permissionDecision: 'deny' as const, permissionDecisionReason: reason },
+    })
+    activity(bot.id, `Waiting for ${nameOf(target)} to finish their current task`)
+    const deadline = Date.now() + TEAMMATE_WAIT_MS
+    while (busyInOwnChat(target) && !signal.aborted && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, TEAMMATE_POLL_MS))
+      const mate = getBot(target)
+      if (!mate) return deny('That employee was deleted.')
+      if (mate.paused) return deny(`${mate.name} is paused: the user took over.`)
+    }
+    if (signal.aborted) return {}
+    if (busyInOwnChat(target)) return deny(`${nameOf(target)} is still busy with another task. Try again later or ask the user.`)
+    return {}
+  }
+
   async function approve(
     actor: BotId,
     card: Pick<ApprovalItem, 'action' | 'detail' | 'body' | 'plan'>,
@@ -438,7 +466,7 @@ function open(bot: Bot, model: Alias | null, resume = true): LiveSession {
     model: model ?? bot.model ?? undefined,
     mcpServers: { willbot: willbotServer(bot, team, confirmHire), ...(bot.browser ? { playwright: playwright(cwd) } : {}) },
     agents: teamBots.length ? agentDefinitions(teamBots) : undefined,
-    hooks: { PreToolUse: [{ hooks: [guard] }] },
+    hooks: { PreToolUse: [{ hooks: [guard] }, { matcher: '^(Agent|Task)$', hooks: [awaitTeammate], timeout: TEAMMATE_HOOK_TIMEOUT_S }] },
     canUseTool,
     env: sdkEnv(),
   }
