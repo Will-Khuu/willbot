@@ -187,6 +187,20 @@ function short(text: string, max = 80): string {
   return t.length > max ? `${t.slice(0, max - 1)}…` : t
 }
 
+const ASYNC_LAUNCH = /^Async agent launched/
+const HANDBACK = 'SubagentHandback'
+
+// A tool result's text, without the agentId line Claude Code adds for resuming.
+function resultText(content: unknown): string {
+  const text =
+    typeof content === 'string'
+      ? content
+      : Array.isArray(content)
+        ? content.flatMap((b: { type?: string; text?: string }) => (b.type === 'text' && b.text ? [b.text] : [])).join('\n')
+        : ''
+  return text.replace(/^agentId:.*$/gm, '').trim()
+}
+
 function str(input: Record<string, unknown>, key: string): string {
   const v = input[key]
   return typeof v === 'string' ? v : ''
@@ -210,6 +224,7 @@ const ACTIVITY: Record<string, (input: Record<string, unknown>, nameOf: (id: str
   WebSearch: (i) => `Searched the web for "${short(str(i, 'query'), 60)}"`,
   WebFetch: (i) => `Opened ${host(str(i, 'url'))}`,
   Bash: (i) => (str(i, 'description') ? `Shell command: ${short(str(i, 'description'), 60)}` : 'Shell command'),
+  SubagentHandback: () => 'Reported back',
   Agent: (i, nameOf) => `Asked ${nameOf(str(i, 'subagent_type') || 'a subagent')}`,
   Task: (i, nameOf) => `Asked ${nameOf(str(i, 'subagent_type') || 'a subagent')}`,
   Skill: (i) => `Used the ${short(str(i, 'skill'), 40)} skill`,
@@ -509,6 +524,18 @@ function open(bot: Bot, model: Alias | null, resume = true): LiveSession {
     save(bot.id, item)
     return item
   }
+  // What this session asked each teammate, so the teammate can report back in
+  // its own chat when the work ends.
+  const handoffs = new Map<string, { target: BotId; task: string; report?: string }>()
+  const reportBack = (toolUseId: string, report: string, status: 'completed' | 'failed' | 'stopped') => {
+    const handoff = handoffs.get(toolUseId)
+    if (!handoff) return
+    handoffs.delete(toolUseId)
+    const head = { completed: 'Done for', failed: "Couldn't finish for", stopped: 'Stopped while working for' }[status]
+    const body = (handoff.report ?? report).trim()
+    const text = `**${head} ${bot.name}:** ${handoff.task}${body ? `\n\n${body}` : ''}`
+    save(handoff.target, { kind: 'assistant', id: newId(), botId: handoff.target, text, at: now() })
+  }
   const speakerOf = (toolUseId: string | null | undefined) =>
     (toolUseId && live.state.delegated.get(toolUseId)) || bot.id
   const announce = (taskId: string) => {
@@ -543,9 +570,13 @@ function open(bot: Bot, model: Alias | null, resume = true): LiveSession {
             continue
           }
           const input = (block.input ?? {}) as Record<string, unknown>
+          // A teammate hands its final report to the caller with this tool.
+          const handoff = msg.parent_tool_use_id ? handoffs.get(msg.parent_tool_use_id) : undefined
+          if (block.name === HANDBACK && handoff) handoff.report = str(input, 'message') || handoff.report
           const target = str(input, 'subagent_type')
           if (isDelegation(block.name) && team.has(target)) {
             dispatch(live, { type: 'delegated', toolUseId: block.id, botId: target })
+            handoffs.set(block.id, { target, task: str(input, 'description') || short(str(input, 'prompt')) })
           }
           const item = activity(speaker, activityLabel(block.name, input, nameOf), { input: detailInput(block.name, input) })
           toolActivity.set(block.id, item)
@@ -559,6 +590,9 @@ function open(bot: Bot, model: Alias | null, resume = true): LiveSession {
         if (!backgroundToolUses.has(block.tool_use_id)) {
           dispatch(live, { type: 'delegation_ended', toolUseId: block.tool_use_id })
         }
+        // A teammate run in the background reports through task_notification instead.
+        const reply = resultText(block.content)
+        if (!ASYNC_LAUNCH.test(reply)) reportBack(block.tool_use_id, reply, block.is_error ? 'failed' : 'completed')
         const item = toolActivity.get(block.tool_use_id)
         if (item?.detail) {
           toolActivity.delete(block.tool_use_id)
@@ -611,9 +645,11 @@ function open(bot: Bot, model: Alias | null, resume = true): LiveSession {
         tasks.delete(msg.task_id)
         if (task?.announced) {
           const verb = { completed: 'Finished', failed: 'Failed', stopped: 'Stopped' }[msg.status]
-          activity(speakerOf(task.toolUseId), `${verb} in the background: ${short(msg.summary || task.description, 80)}`)
+          const handedBack = task.toolUseId !== undefined && handoffs.get(task.toolUseId)?.report !== undefined
+          activity(speakerOf(task.toolUseId), `${verb} in the background: ${short(handedBack ? task.description : msg.summary || task.description, 80)}`)
         }
         const toolUseId = msg.tool_use_id ?? task?.toolUseId
+        if (toolUseId) reportBack(toolUseId, msg.summary, msg.status)
         if (toolUseId) dispatch(live, { type: 'delegation_ended', toolUseId })
         return
       }
