@@ -56,7 +56,7 @@ Set these in the right panel. The screen button in the chat header shows or hide
 - **Also has access to.** Extra folders, described under Folders and context.
 - **Model.** Default uses your Claude Code model. Haiku, Sonnet and Opus pick that model. A change applies to the live session at once. With the router on, the field shows Router and is locked.
 - **Pick the model per task (pstack table).** Turns on the model router, described below. Off by default, on for Builder Bot.
-- **Can hire new employees.** Gives the employee a `hire` tool that adds an employee with a name, job, model, browser and router setting. You confirm each hire on a card; the new employee then shows in the roster, and the Chief's team includes it. The team still stops at 12. Off by default, on for Dr Egg. A change reopens the session.
+- **Can hire new employees.** Gives the employee a `hire` tool that adds an employee with a name, job, model, browser and router setting. You confirm each hire on a card; the new employee then shows in the roster, and the Chief's team includes it. The team still stops at 20. Off by default, on for Dr Egg. A change reopens the session.
 - **Browser.** Adds the Playwright MCP server (`@playwright/mcp@0.0.84`, headless, isolated profile), writing its output to `<folder>/.playwright`. Off by default, on for Builder Bot.
 - **Job and memory.** Both are part of the prompt. An edit reopens the session: at once if it is idle, else when its turn and background work end.
 

@@ -20,7 +20,7 @@ const BOTS_FILE = path.join(DATA_DIR, 'bots.json')
 const USAGE_FILE = path.join(DATA_DIR, 'usage.json')
 const ROUTINES_FILE = path.join(DATA_DIR, 'routines.json')
 const BOT_ID = /^[a-z0-9-]{1,40}$/
-export const MAX_BOTS = 12
+export const MAX_BOTS = 20
 
 type ChatSummary = { last: LastLine | null; lastReplyAt: string | null }
 

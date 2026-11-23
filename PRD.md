@@ -57,7 +57,7 @@ Design principle: employees work exactly like a Claude Code session. will-bot's 
 3. **Builder Bot** does coding work. It is the user's pstack employee, with the browser and model router on.
 4. **Dr Egg** asks a few preference questions, then proposes new employees for the user to approve.
 
-The team is capped at 12 employees.
+The team is capped at 20 employees.
 
 ## 8. Functional requirements
 
