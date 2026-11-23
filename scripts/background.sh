@@ -36,6 +36,12 @@ write_plist() {
 EOF
 }
 
+# The notification helper needs Xcode's command line tools; without them
+# notifications still show, but a click cannot open will-bot.
+build_notifier() {
+  "$ROOT/scripts/notifier/build.sh" >/dev/null || echo "Could not build the notification helper; notifications will not open will-bot when clicked." >&2
+}
+
 port_busy() {
   lsof -ti tcp:3000 -sTCP:LISTEN >/dev/null 2>&1
 }
@@ -47,6 +53,7 @@ case "${1:-}" in
       exit 1
     fi
     (cd "$ROOT" && npm run build)
+    build_notifier
     write_plist
     launchctl bootout "$DOMAIN/$LABEL" 2>/dev/null || true
     # launchd finishes tearing down the old job asynchronously; bootstrapping
@@ -64,6 +71,7 @@ case "${1:-}" in
     ;;
   restart)
     (cd "$ROOT" && npm run build)
+    build_notifier
     launchctl kickstart -k "$DOMAIN/$LABEL"
     echo "Rebuilt and restarted will-bot."
     ;;
