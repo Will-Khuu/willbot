@@ -19,12 +19,14 @@ import {
   type SDKMessage,
   type SDKUserMessage,
 } from '@anthropic-ai/claude-agent-sdk'
+import { lastLine } from './chatlog'
 import { classify } from './classify'
 import { isImageMime, promptText, type Attachment } from './context'
 import { CARD_MAX, detailInput, detailOutput, truncate } from './detail'
 import { sdkEnv } from './env'
 import { actorOf, guardToolCall, HIRE, isDelegation, REMEMBER, ROUTINE_TOOLS } from './guard'
 import { plansDir, readFileInside } from './folders'
+import { notifyMac } from './macNotify'
 import { BotNameSchema } from './names'
 import { parseQuestions } from './questions'
 import { ROUTINE_ACTIVITY, routineTools } from './routineTools'
@@ -417,6 +419,7 @@ function open(bot: Bot, model: Alias | null, resume = true): LiveSession {
     const body = card.body === null ? null : truncate(card.body, CARD_MAX)
     const item: ApprovalItem = { kind: 'approval', id, botId: actor, ...card, body, state: 'pending', at: now() }
     save(bot.id, item)
+    void notifyMac(nameOf(actor), `Needs your approval: ${card.action}`)
     const state = await outcome
     save(bot.id, { ...item, state }, true)
     if (state === 'allowed') return { behavior: 'allow', updatedInput: input }
@@ -436,6 +439,7 @@ function open(bot: Bot, model: Alias | null, resume = true): LiveSession {
     const { id, outcome } = awaitDecision<'question'>({ kind: 'question', botId: actor, ownerId: bot.id, questions }, signal)
     const item: QuestionItem = { kind: 'question', id, botId: actor, questions, answers: null, state: 'pending', at: now() }
     save(bot.id, item)
+    void notifyMac(nameOf(actor), questions[0]?.question ?? 'Has a question for you')
     const result = await outcome
     if (result === 'expired') {
       save(bot.id, { ...item, state: 'expired' }, true)
@@ -619,10 +623,15 @@ function open(bot: Bot, model: Alias | null, resume = true): LiveSession {
       dispatch(live, { type: 'result' })
       // stopBot already said "Stopped."
       if (stopped && msg.is_error) return
+      const failed = msg.subtype !== 'success' || msg.is_error
       if (msg.subtype === 'success') {
         if (msg.is_error) fail(msg.result || 'The turn failed.')
       } else {
         fail(msg.errors.join('\n') || `The turn ended early (${msg.subtype}).`)
+      }
+      if (!stopped) {
+        const last = lastLine(readChat(bot.id).items)
+        void notifyMac(bot.name, failed ? 'Stopped with an error' : last?.who === 'assistant' ? last.text : 'Finished')
       }
       return
     }
