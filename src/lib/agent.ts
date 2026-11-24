@@ -23,8 +23,8 @@ import { lastLine } from './chatlog'
 import { classify } from './classify'
 import { isImageMime, promptText, type Attachment } from './context'
 import { CARD_MAX, detailInput, detailOutput, truncate } from './detail'
-import { sdkEnv } from './env'
-import { actorOf, guardToolCall, HIRE, isDelegation, REMEMBER, ROUTINE_TOOLS } from './guard'
+import { billingOverride, sdkEnv } from './env'
+import { actorOf, guardToolCall, HIRE, isDelegation, LIST_TEAMMATES, MESSAGE_TEAMMATE, REMEMBER, ROUTINE_TOOLS } from './guard'
 import { plansDir, readFileInside } from './folders'
 import { notifyMac } from './macNotify'
 import { BotNameSchema } from './names'
@@ -43,6 +43,7 @@ import {
   rt,
   type LiveSession,
 } from './runtime'
+import { HOP_LIMIT_REASON, nextHops, teammatePrompt } from './teammates'
 import { applyTaskCall, parseTaskCall, TASK_TOOLS, type TaskCall, type TaskEntry } from './tasks'
 import { initialSession, isQuiet, isWorking, reduce, shouldRecycle, type SessionEvent } from './session'
 import { appendMemory, createBot, ensureFolder, getBot, listBots, MAX_BOTS, readChat, readMemory, setSessionId, upsertChatItem } from './store'
@@ -77,6 +78,7 @@ function employeeBlock(bot: Bot, opts: { canRemember: boolean; team?: Bot[] }): 
     lines.push(
       `When the user tells you a durable fact or preference, save it with the ${REMEMBER} tool.`,
       'To automate recurring work, create a will-bot routine with create_routine. Routines persist, show in the user\'s panel, and run while will-bot is open. Never use CronCreate or ScheduleWakeup.',
+      `You can message other employees with the ${MESSAGE_TEAMMATE} tool (list them with ${LIST_TEAMMATES}). A message lands in their own chat, and their reply comes back to you as a new message later, so don't wait for it in the same turn.`,
     )
   }
   if (opts.canRemember && bot.hire) {
@@ -165,9 +167,46 @@ function willbotServer(bot: Bot, team: ReadonlySet<BotId>, confirm: (h: Hire, si
         },
       ),
       ...(bot.hire ? [hire] : []),
+      ...teammateTools(bot),
       ...routineTools(bot, team),
     ],
   })
+}
+
+function teammateTools(bot: Bot) {
+  const fail = (t: string) => ({ ...text(t), isError: true })
+  return [
+    tool('list_teammates', 'List the other will-bot employees you can message.', {}, async () => {
+      const others = listBots().filter((b) => b.id !== bot.id)
+      return text(JSON.stringify(others.map((b) => ({ id: b.id, name: b.name, job: b.job, paused: b.paused })), null, 2))
+    }),
+    tool(
+      'message_teammate',
+      "Send a message to another will-bot employee. It lands in their own chat and they work on it in their own session. Their reply arrives later as a new message to you; don't wait for it.",
+      {
+        to: z.string().describe('The employee id, from list_teammates.'),
+        text: z.string().trim().min(1).max(100_000).describe('The message. Say what you need and why; they do not see your chat.'),
+      },
+      async ({ to, text: message }) => {
+        if (to === bot.id) return fail('That is your own id. Message another employee.')
+        const mate = getBot(to)
+        if (!mate) {
+          const ids = listBots().flatMap((b) => (b.id === bot.id ? [] : [b.id]))
+          return fail(`No employee has the id ${JSON.stringify(to)}. Valid ids: ${ids.join(', ') || '(none)'}.`)
+        }
+        if (mate.paused) return fail(`${mate.name} is paused: the user took over.`)
+        // The chat route refuses the user's own messages in this state too.
+        const owner = delegatedBy(mate.id)
+        if (owner) return fail(`${mate.name} is working for ${getBot(owner)?.name ?? owner}. Try again later.`)
+        if (nextHops(rt.hops.get(bot.id) ?? 0) === null) return fail(HOP_LIMIT_REASON)
+        // The same plan-billing check the chat route and the scheduler make.
+        const billingVar = await billingOverride(mate.folder)
+        if (billingVar) return fail(`${mate.name} can't run: ${billingVar} is set, so usage would be billed to the API. Tell the user.`)
+        sendMessage(mate, message, [], null, undefined, bot.id)
+        return text(`Delivered to ${mate.name}'s chat. Their reply will arrive as a new message later; don't wait for it.`)
+      },
+    ),
+  ]
 }
 
 function agentDefinitions(team: Bot[]): Record<string, AgentDefinition> {
@@ -234,6 +273,8 @@ const ACTIVITY: Record<string, (input: Record<string, unknown>, nameOf: (id: str
   ExitPlanMode: () => 'Shared a plan',
   [REMEMBER]: (i) => `Remembered: ${short(str(i, 'note'), 60)}`,
   [HIRE]: (i) => `Asked to hire ${short(str(i, 'name'), 40)}`,
+  [MESSAGE_TEAMMATE]: (i, nameOf) => `Messaged ${nameOf(str(i, 'to'))}: ${short(str(i, 'text'), 60)}`,
+  [LIST_TEAMMATES]: () => 'Listed teammates',
   ...ROUTINE_ACTIVITY,
 }
 
@@ -381,7 +422,8 @@ function open(bot: Bot, model: Alias | null, resume = true): LiveSession {
     }
     // The hire tool shows its own card; a second one from Claude Code would ask
     // twice. Routines need no card: the user asks employees to automate things.
-    if (call.toolName === HIRE || ROUTINE_TOOLS.has(call.toolName)) {
+    // Teammate messages need none either; the hop limit bounds them.
+    if (call.toolName === HIRE || ROUTINE_TOOLS.has(call.toolName) || call.toolName === MESSAGE_TEAMMATE || call.toolName === LIST_TEAMMATES) {
       return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'allow' } }
     }
     return {}
@@ -834,6 +876,7 @@ async function deliver(
   prior: Prior,
   signal: AbortSignal,
   effort?: Effort | null,
+  from?: BotId,
 ): Promise<void> {
   let bot = getBot(botId)
   if (!bot || bot.paused || signal.aborted) return
@@ -872,7 +915,8 @@ async function deliver(
     )
     if (!usable(live) || signal.aborted) return
   }
-  if (!live.push(userMessage(text, attachments))) {
+  const prompt = from ? teammatePrompt(getBot(from)?.name ?? from, from, text) : text
+  if (!live.push(userMessage(prompt, attachments))) {
     save(botId, { kind: 'error', id: newId(), text: "Couldn't deliver that message; please resend.", at: now() })
     return
   }
@@ -881,22 +925,38 @@ async function deliver(
 
 // Opens the employee's session on first use; later messages join it, even
 // mid-turn. Routing happens before the message reaches the session, one
-// message at a time per employee.
-export function sendMessage(bot: Bot, text: string, attachments: readonly Attachment[], pick: Alias | null, effort?: Effort | null): void {
+// message at a time per employee. from is the teammate who sent it, if not the user.
+export function sendMessage(
+  bot: Bot,
+  text: string,
+  attachments: readonly Attachment[],
+  pick: Alias | null,
+  effort?: Effort | null,
+  from?: BotId,
+): void {
   const chat = readChat(bot.id)
   const ongoing = chat.sessionId !== null || rt.sessions.has(bot.id) || rt.sending.has(bot.id)
   const prior: Prior = {
     items: chat.items,
     lastUserAt: ongoing ? (chat.items.findLast((i) => i.kind === 'user')?.at ?? null) : null,
   }
-  save(bot.id, { kind: 'user', id: newId(), text, ...(attachments.length ? { attachments: [...attachments] } : {}), at: now() })
+  const hops = nextHops(from ? (rt.hops.get(from) ?? 0) : null)
+  if (hops !== null) rt.hops.set(bot.id, hops)
+  save(bot.id, {
+    kind: 'user',
+    id: newId(),
+    text,
+    ...(attachments.length ? { attachments: [...attachments] } : {}),
+    ...(from ? { from } : {}),
+    at: now(),
+  })
   const ctrl = new AbortController()
   let sending = rt.sending.get(bot.id)
   if (!sending) rt.sending.set(bot.id, (sending = new Set()))
   sending.add(ctrl)
   publish(bot.id, { type: 'status' })
   const tail = (rt.sendTail.get(bot.id) ?? Promise.resolve())
-    .then(() => deliver(bot.id, text, attachments, pick, prior, ctrl.signal, effort))
+    .then(() => deliver(bot.id, text, attachments, pick, prior, ctrl.signal, effort, from))
     .catch((e: unknown) => save(bot.id, { kind: 'error', id: newId(), text: e instanceof Error ? e.message : String(e), at: now() }))
     .finally(() => {
       sending.delete(ctrl)

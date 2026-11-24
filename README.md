@@ -48,6 +48,10 @@ The first start creates four employees.
 - **Builder Bot** makes small code changes in its folder. Its browser and model router are on.
 - **Dr Egg** designs new employees. It asks you a few preference questions, then hires them with its `hire` tool. It talks casually, in short lowercase messages, and turns the router on for coding employees. Can hire is on.
 
+### Messaging each other
+
+Any employee can message another one directly with its `message_teammate` tool, and `list_teammates` lists who it can reach. The message shows in the recipient's chat under the sender's name, and the recipient works on it in its own session. The reply comes back the same way, as a new message in the sender's chat, so the sender does not wait for it. The recipient is told the message came from a teammate and that your instructions win. A chain of teammate messages stops after 6 in a row; your next message or routine starts a new chain. An employee cannot message one that is paused, deleted or working for the Chief. The Chief still delegates with the Agent tool as before.
+
 ## Per-employee settings
 
 Set these in the right panel. The screen button in the chat header shows or hides it, and the details button opens it at the job.
@@ -153,7 +157,7 @@ Employees run with your Claude Code permissions and settings, exactly like a Cla
 
 - **Permission mode.** If your settings name a `permissions.defaultMode`, sessions use it. If they do not, sessions run in auto mode, as your desktop sessions do. Whenever Claude Code wants a human, the chat shows the card.
 - **Take over.** A PreToolUse hook denies every tool call from a paused or deleted employee, including one working inside the Chief's session. It also denies the Chief's delegation to a paused or deleted employee.
-- **Will-bot's own tools.** Only the employee you are talking to can use `remember` and `hire`. No subagent can, whether a teammate or a generic one, because a subagent may be acting on what it read. `hire` checks the Can hire switch on every call, so turning it off takes effect at once.
+- **Will-bot's own tools.** Only the employee you are talking to can use `remember`, `hire` and `message_teammate`. No subagent can, whether a teammate or a generic one, because a subagent may be acting on what it read. `hire` checks the Can hire switch on every call, so turning it off takes effect at once.
 - **Hire confirmation.** Every hire shows a card with the name, job, model, browser and router, in every permission mode. The employee is created only when you approve. Other employees' names and jobs reach a prompt only as quoted data, never as instructions.
 - **Plan files.** A plan card reads the plan file only from Claude Code's `plans` folder (`~/.claude/plans`, or under `CLAUDE_CONFIG_DIR`), after resolving links, and only under 200 KB. Otherwise it shows the plan text or the tool input. Every card's text is cut to 8 KB.
 - **Plan billing only.** Employees refuse to run while `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_BASE_URL`, `CLAUDE_CODE_USE_BEDROCK`, `CLAUDE_CODE_USE_VERTEX`, or `CLAUDE_CODE_USE_FOUNDRY` is set, or while an `apiKeyHelper` is configured. The check covers the server's environment and the `env` block of your Claude Code settings: user settings, plus the project and local settings of the employee's folder. The banner checks your home folder's settings and names what it found. The app only checks whether these are set and never reads their values.
@@ -164,7 +168,7 @@ Employees run with your Claude Code permissions and settings, exactly like a Cla
 
 ## Known limits
 
-- Teammates run inside the Chief's session. They cannot use `remember`, and their shell commands start from the Chief's folder.
+- Teammates run inside the Chief's session. They cannot use `remember` or `message_teammate`, and their shell commands start from the Chief's folder.
 - Stopping or taking over a teammate that is working for the Chief also stops the Chief's turn.
 - Sessions load your plugins, and their startup hooks add text to every session's prompt, which costs plan usage.
 - Your user settings load, so an `env` block in `~/.claude/settings.json` reaches every employee. A billing variable there stops every employee.

@@ -25,10 +25,13 @@ function matches(b: BotView, q: string): boolean {
   return [b.name, b.job, b.last?.text ?? ''].some((s) => s.toLowerCase().includes(q))
 }
 
-function preview(b: BotView): { text: string; tone: string } {
+function preview(b: BotView, nameOf: (id: string) => string): { text: string; tone: string } {
   if (b.status !== 'idle') return { text: b.status === 'working' ? `${b.statusLine}…` : b.statusLine, tone: b.status }
-  if (!b.last) return { text: b.job, tone: 'empty' }
-  return { text: b.last.who === 'user' ? `You: ${b.last.text}` : b.last.text, tone: 'idle' }
+  const last = b.last
+  if (!last) return { text: b.job, tone: 'empty' }
+  if (last.who === 'user') return { text: `You: ${last.text}`, tone: 'idle' }
+  if (last.who === 'teammate') return { text: `${nameOf(last.from)}: ${last.text}`, tone: 'idle' }
+  return { text: last.text, tone: 'idle' }
 }
 
 export function Roster(props: Props) {
@@ -41,6 +44,7 @@ export function Roster(props: Props) {
   const [query, setQuery] = useState('')
   const q = query.trim().toLowerCase()
   const shown = q ? bots.filter((b) => matches(b, q)) : bots
+  const nameOf = (id: string) => bots.find((b) => b.id === id)?.name ?? id
 
   const submit = async (e: FormEvent) => {
     e.preventDefault()
@@ -124,7 +128,7 @@ export function Roster(props: Props) {
 
       <ul className="employeeList">
         {shown.map((b) => {
-          const line = preview(b)
+          const line = preview(b, nameOf)
           const unread = isUnread(b)
           const current = b.id === selectedId && !props.pluginsOpen
           return (

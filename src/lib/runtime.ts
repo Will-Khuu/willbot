@@ -81,6 +81,8 @@ type Runtime = {
   sending: Map<BotId, Set<AbortController>>
   // Each employee's sends run in order, so routes and messages never reorder.
   sendTail: Map<BotId, Promise<void>>
+  // Teammate messages since the employee's last message from the user or a routine.
+  hops: Map<BotId, number>
   capabilities?: { at: number; ttl: number; value: Promise<Capabilities> }
   // Plan usage from the latest rate_limit_event; undefined until read from data/usage.json.
   usage?: Usage | null
@@ -98,10 +100,12 @@ export const rt: Runtime = (g.__willbotSessions ??= {
   subscribers: new Map(),
   sending: new Map(),
   sendTail: new Map(),
+  hops: new Map(),
 })
 // A runtime kept across an HMR from before these fields existed.
 rt.sending ??= new Map()
 rt.sendTail ??= new Map()
+rt.hops ??= new Map()
 
 const CAPABILITIES_TTL_MS = 10 * 60 * 1000
 const CAPABILITIES_FAILURE_TTL_MS = 60 * 1000

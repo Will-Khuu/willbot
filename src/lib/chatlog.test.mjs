@@ -46,3 +46,11 @@ test('chatMarkdown names who said what', () => {
   assert.match(md, /\*\*You\*\* · .*\n\nhi/)
   assert.match(md, /\*\*Chief of Staff\*\* · .*\n\nhello/)
 })
+
+test('a teammate message names its sender, not you', () => {
+  const items = [{ kind: 'user', id: 'u', text: 'Can you check the build?', from: 'builder', at: at(9, 0) }]
+  assert.deepEqual(lastLine(items), { who: 'teammate', from: 'builder', text: 'Can you check the build?', at: at(9, 0) })
+  const md = chatMarkdown('Research', items, (id) => (id === 'builder' ? 'Builder Bot' : id))
+  assert.match(md, /\*\*Builder Bot\*\* · .*\n\nCan you check the build\?/)
+  assert.doesNotMatch(md, /\*\*You\*\*/)
+})

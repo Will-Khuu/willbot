@@ -387,6 +387,17 @@ export function ChatPane(props: Props) {
             const item = row.item
             switch (item.kind) {
               case 'user':
+                // A teammate's message sits on the bot side, under the sender's name.
+                if (item.from) {
+                  return (
+                    <div key={item.id} className="botRow">
+                      <div className="botWho">{nameOf(item.from)}</div>
+                      <div className="bubble botBubble" title={new Date(item.at).toLocaleString()}>
+                        {item.text}
+                      </div>
+                    </div>
+                  )
+                }
                 return (
                   <div key={item.id} className="userRow">
                     {item.attachments && <Attachments botId={bot.id} attachments={item.attachments} />}

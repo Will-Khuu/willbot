@@ -51,6 +51,8 @@ export const ChatItemSchema = z.discriminatedUnion('kind', [
     id: z.string(),
     text: z.string(),
     attachments: z.array(AttachmentSchema).optional(),
+    // The teammate who sent it; absent when the user wrote it.
+    from: z.string().optional(),
     at: z.string(),
   }),
   z.object({ kind: z.literal('assistant'), id: z.string(), botId: z.string(), text: z.string(), at: z.string() }),

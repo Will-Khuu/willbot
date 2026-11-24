@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { CREATE_ROUTINE, DELETE_ROUTINE, guardToolCall, HIRE, LIST_ROUTINES, REMEMBER, SESSION_SCHEDULER_REASON, UPDATE_ROUTINE } from './guard.ts'
+import { CREATE_ROUTINE, DELETE_ROUTINE, guardToolCall, HIRE, LIST_ROUTINES, LIST_TEAMMATES, MESSAGE_TEAMMATE, REMEMBER, SESSION_SCHEDULER_REASON, UPDATE_ROUTINE } from './guard.ts'
 
 const employees = {
   chief: { name: 'Chief of Staff', paused: false, hire: true },
@@ -50,6 +50,15 @@ test('remember is only for the session owner, never a subagent', () => {
   assert.equal(guardToolCall(call({ toolName: REMEMBER }), lookup), null)
   assert.match(guardToolCall(call({ toolName: REMEMBER, agentId: 'a1', agentType: 'Explore' }), lookup), /not a subagent/)
   assert.match(guardToolCall(call({ toolName: REMEMBER, agentId: 'a1', agentType: 'research' }), lookup), /not a subagent/)
+})
+
+test('only the session owner may message a teammate, never a subagent', () => {
+  assert.equal(guardToolCall(call({ toolName: MESSAGE_TEAMMATE }), lookup), null)
+  assert.equal(guardToolCall(call({ ownerId: 'research', team: new Set(), toolName: MESSAGE_TEAMMATE }), lookup), null)
+  assert.match(guardToolCall(call({ toolName: MESSAGE_TEAMMATE, agentId: 'a1', agentType: 'Explore' }), lookup), /not a subagent/)
+  // A teammate running inside the Chief's session is a subagent too.
+  assert.match(guardToolCall(call({ toolName: MESSAGE_TEAMMATE, agentId: 'a1', agentType: 'research' }), lookup), /not a subagent/)
+  assert.equal(guardToolCall(call({ toolName: LIST_TEAMMATES, agentId: 'a1', agentType: 'research' }), lookup), null)
 })
 
 test('only the session owner may hire, never a subagent', () => {

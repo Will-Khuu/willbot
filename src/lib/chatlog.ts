@@ -1,6 +1,7 @@
 import type { ChatItem } from './types'
 
-export type LastLine = { who: 'user' | 'assistant'; text: string; at: string }
+// A teammate's line names its sender (`from`), since the roster shows who wrote it.
+export type LastLine = { who: 'user' | 'assistant'; text: string; at: string } | { who: 'teammate'; from: string; text: string; at: string }
 
 // Messages further apart than this get a time divider between them.
 export const DIVIDER_GAP_MS = 30 * 60_000
@@ -23,7 +24,7 @@ export function lastLine(items: readonly ChatItem[]): LastLine | null {
     if (item.kind === 'user') {
       const files = item.attachments?.length ?? 0
       const text = oneLine(item.text) || (files === 1 ? 'Sent a file' : `Sent ${files} files`)
-      return { who: 'user', text, at: item.at }
+      return item.from ? { who: 'teammate', from: item.from, text, at: item.at } : { who: 'user', text, at: item.at }
     }
   }
   return null
@@ -70,7 +71,7 @@ export function chatMarkdown(title: string, items: readonly ChatItem[], nameOf: 
     const when = new Date(item.at).toLocaleString('en-US')
     if (item.kind === 'user') {
       const files = (item.attachments ?? []).map((a) => `- ${a.name}`).join('\n')
-      blocks.push(`**You** · ${when}\n\n${[item.text, files].filter(Boolean).join('\n\n')}`)
+      blocks.push(`**${item.from ? nameOf(item.from) : 'You'}** · ${when}\n\n${[item.text, files].filter(Boolean).join('\n\n')}`)
     } else if (item.kind === 'assistant') {
       blocks.push(`**${nameOf(item.botId)}** · ${when}\n\n${item.text}`)
     } else if (item.kind === 'approval') {

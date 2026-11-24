@@ -2,6 +2,8 @@ import type { BotId } from './types'
 
 export const REMEMBER = 'mcp__willbot__remember'
 export const HIRE = 'mcp__willbot__hire'
+export const LIST_TEAMMATES = 'mcp__willbot__list_teammates'
+export const MESSAGE_TEAMMATE = 'mcp__willbot__message_teammate'
 export const LIST_ROUTINES = 'mcp__willbot__list_routines'
 export const CREATE_ROUTINE = 'mcp__willbot__create_routine'
 export const UPDATE_ROUTINE = 'mcp__willbot__update_routine'
@@ -57,8 +59,11 @@ export function guardToolCall(call: ToolCall, lookup: (id: BotId) => Employee | 
   }
   if (SESSION_SCHEDULERS.has(call.toolName)) return SESSION_SCHEDULER_REASON
   // A subagent works from whatever it read, so it may not write memory, hire,
-  // or set up unattended runs.
+  // message teammates, or set up unattended runs.
   if (call.toolName === REMEMBER && call.agentId) return 'Only the employee the user is talking to can remember, not a subagent.'
+  if (call.toolName === MESSAGE_TEAMMATE && call.agentId) {
+    return 'Only the employee the user is talking to can message teammates, not a subagent.'
+  }
   if (ROUTINE_TOOLS.has(call.toolName) && call.agentId) {
     return 'Only the employee the user is talking to can manage routines, not a subagent.'
   }
