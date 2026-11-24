@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import {
   aliasOf,
+  classifierPrompt,
   decideRoute,
   isNewTask,
   loadRoleTables,
@@ -138,4 +139,12 @@ test('parses classifier output and rejects bad output', () => {
   assert.equal(parseClassification({ reason: 'x' }), null)
   assert.equal(parseClassification(undefined), null)
   assert.equal(parseClassification('feature'), null)
+})
+
+test('the classifier reads only the start of a long message', () => {
+  const long = 'Fix the login bug. ' + 'x'.repeat(100_000)
+  const prompt = classifierPrompt('', long)
+  assert.ok(prompt.includes('Fix the login bug.'))
+  assert.ok(prompt.length < 6000)
+  assert.ok(classifierPrompt('', 'short message').endsWith('short message'))
 })

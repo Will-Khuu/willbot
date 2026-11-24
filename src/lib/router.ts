@@ -98,7 +98,11 @@ const KIND_HINTS: Record<TaskKind, string> = {
   judgment: 'writing, reviewing, or a decision or tradeoff call',
 }
 
+// The start of a long paste says what the task is; the rest only slows the classifier.
+const CLASSIFY_MESSAGE_MAX = 4000
+
 export function classifierPrompt(context: string, message: string): string {
+  const shown = message.length > CLASSIFY_MESSAGE_MAX ? `${message.slice(0, CLASSIFY_MESSAGE_MAX)}\n[…cut]` : message
   return [
     'Classify the task in the new message to a coding assistant. Kinds:',
     ...TASK_KINDS.map((k) => `- ${k}: ${KIND_HINTS[k]}`),
@@ -108,7 +112,7 @@ export function classifierPrompt(context: string, message: string): string {
     context || '(none)',
     '',
     'New message:',
-    message,
+    shown,
   ].join('\n')
 }
 

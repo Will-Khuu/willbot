@@ -13,7 +13,7 @@ export const dynamic = 'force-dynamic'
 const SendMessage = z
   .object({
     botId: z.string(),
-    message: z.string().trim().max(4000),
+    message: z.string().trim().max(100_000),
     // Upload ids from POST /api/attachments.
     attachments: z.array(z.string()).max(MAX_ATTACHMENTS, `At most ${MAX_ATTACHMENTS} attachments per message.`).default([]),
     // A one-message model pick from the composer; absent means Auto.
