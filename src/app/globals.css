@@ -211,6 +211,10 @@ ul {
 
 .shell {
   height: 100%;
+  /* Contains absolutely placed children, like the hidden "is working…" label,
+     which otherwise sit below the window and make the page scrollable. */
+  position: relative;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
 }

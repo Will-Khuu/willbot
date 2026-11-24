@@ -9,7 +9,6 @@ import { Roster } from './Roster'
 import { ChatPane } from './ChatPane'
 import { Details, type PanelTarget } from './Details'
 import { Plugins } from './Plugins'
-import { useRefit } from './refit'
 import { useUnread } from './seen'
 import { limitNotice } from './UsageMeter'
 
@@ -53,7 +52,6 @@ export function App() {
   const busy = bots.some((b) => b.status !== 'idle')
   const limit = limitNotice(usage, now)
   const isUnread = useUnread(bots, pluginsOpen ? null : selectedId)
-  useRefit(selectedId, setSelectedId)
   const activity = `${items?.length ?? 0}:${items?.at(-1)?.id ?? ''}:${bot?.status ?? ''}`
 
   const refreshBots = useCallback(async () => {
