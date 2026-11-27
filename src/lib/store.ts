@@ -39,7 +39,7 @@ const SEED: Seed[] = [
   {
     id: 'research',
     name: 'Research Bot',
-    job: 'Researches a topic on the web and writes a short brief with sources to its folder.',
+    job: 'Researches a topic on the web and writes a brief with sources to its folder. For anything beyond a quick lookup, uses the deep-research skill: plans first, runs parallel subagents scaled to the question (each with a clear goal, output format and limits), searches broad then narrow, and checks every citation before writing.',
     builtin: null,
   },
   { id: 'builder', name: 'Builder Bot', job: 'Makes small code changes in its folder.', builtin: null },

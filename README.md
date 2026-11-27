@@ -44,7 +44,7 @@ It runs `next start` as a LaunchAgent (`~/Library/LaunchAgents/com.willbot.app.p
 The first start creates four employees.
 
 - **Chief of Staff** coordinates the others and gives you short summaries. Its team is every other employee that is not paused. It delegates with Claude Code's Agent tool, using an employee's id as the subagent type. A teammate runs inside the Chief's session with its own job, memory, model and browser setting.
-- **Research Bot** researches a topic on the web and writes a short brief with sources to its folder.
+- **Research Bot** researches a topic on the web and writes a brief with sources to its folder. For bigger questions it uses the deep-research skill to run parallel subagents and check citations.
 - **Builder Bot** makes small code changes in its folder. Its browser and model router are on.
 - **Dr Egg** designs new employees. It asks you a few preference questions, then hires them with its `hire` tool. It talks casually, in short lowercase messages, and turns the router on for coding employees. Can hire is on.
 
